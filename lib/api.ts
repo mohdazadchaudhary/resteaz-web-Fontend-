@@ -1,5 +1,14 @@
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
 
+export function resolveImageUrl(imageUrl?: string | null): string | undefined {
+  if (!imageUrl) return undefined;
+  try {
+    return new URL(imageUrl, API_BASE_URL).toString();
+  } catch {
+    return undefined;
+  }
+}
+
 export interface Restaurant {
   id: number;
   name: string;
@@ -25,6 +34,25 @@ export interface MenuItem {
   available: boolean;
   category?: Category;
   restaurant?: Restaurant;
+  addOns?: AddOn[];
+}
+
+export interface AddOn {
+  id: number;
+  name: string;
+  description?: string;
+  price: number;
+  dietaryType?: 'veg' | 'non-veg' | null;
+  available: boolean;
+}
+
+export interface AddOnRequest {
+  id?: number;
+  name?: string;
+  description?: string;
+  price?: number;
+  dietaryType?: 'veg' | 'non-veg' | '';
+  available?: boolean;
 }
 
 export interface Table {
@@ -61,6 +89,7 @@ export interface MenuItemRequest {
   preparationTimeMinutes?: number;
   categoryId: number;
   available: boolean;
+  addOns?: AddOnRequest[];
 }
 
 export interface MenuItemAvailabilityRequest {
@@ -70,6 +99,7 @@ export interface MenuItemAvailabilityRequest {
 export interface OrderItemRequest {
   menuItemId: number;
   quantity: number;
+  addOns?: { addOnId: number; quantity: number }[];
 }
 
 export interface OrderRequest {
@@ -84,6 +114,15 @@ export interface OrderRequest {
 
 export interface OrderItemResponse {
   menuItemId: number;
+  name: string;
+  quantity: number;
+  unitPrice: number;
+  subtotal: number;
+  addOns: OrderItemAddOnResponse[];
+}
+
+export interface OrderItemAddOnResponse {
+  addOnId: number;
   name: string;
   quantity: number;
   unitPrice: number;
@@ -199,6 +238,40 @@ class ApiService {
   // Menu Item APIs
   async getMenuItemById(id: number): Promise<MenuItem> {
     return this.request<MenuItem>(`/api/menu/${id}`);
+  }
+
+  async getAddOns(): Promise<AddOn[]> {
+    return this.request<AddOn[]>('/api/add-ons');
+  }
+
+  async createAddOn(request: AddOnRequest): Promise<AddOn> {
+    return this.request<AddOn>('/api/add-ons', {
+      method: 'POST',
+      body: JSON.stringify(request),
+    });
+  }
+
+  async updateAddOn(id: number, request: AddOnRequest): Promise<AddOn> {
+    return this.request<AddOn>(`/api/add-ons/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(request),
+    });
+  }
+
+  async uploadMenuImage(file: File): Promise<{ imageUrl: string }> {
+    const formData = new FormData();
+    formData.append('file', file);
+    const response = await fetch(`${API_BASE_URL}/api/menu/images`, {
+      method: 'POST',
+      body: formData,
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(errorText || `HTTP error! status: ${response.status}`);
+    }
+
+    return response.json();
   }
 
   async createMenuItem(request: MenuItemRequest): Promise<MenuItem> {

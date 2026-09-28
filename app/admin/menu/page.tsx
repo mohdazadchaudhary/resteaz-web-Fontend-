@@ -1,8 +1,17 @@
 "use client";
 
-import React, { useState, useEffect, useCallback } from "react";
-import { Plus, Edit, X, CheckCircle2, AlertCircle, Trash2 } from "lucide-react";
-import { apiService, Category, MenuItem, CategoryRequest, MenuItemRequest } from "@/lib/api";
+import React, { useState, useEffect, useCallback, useRef } from "react";
+import { Plus, Edit, X, CheckCircle2, AlertCircle, Trash2, Utensils, Upload } from "lucide-react";
+import { apiService, AddOn, Category, MenuItem, CategoryRequest, MenuItemRequest, resolveImageUrl } from "@/lib/api";
+
+type MenuItemAddOn = {
+  id?: number;
+  name: string;
+  description?: string;
+  price: number;
+  dietaryType?: "veg" | "non-veg" | "";
+  available: boolean;
+};
 
 type MenuItemForm = {
   name: string;
@@ -13,10 +22,25 @@ type MenuItemForm = {
   preparationTimeMinutes: string;
   categoryId: string;
   available: boolean;
+  addOns: MenuItemAddOn[];
 };
+
+function MenuImagePreview({ imageUrl }: { imageUrl: string }) {
+  const [failedUrl, setFailedUrl] = useState<string | null>(null);
+  const src = resolveImageUrl(imageUrl);
+
+  return src && failedUrl !== src ? (
+    <img src={src} alt="Menu item preview" onError={() => setFailedUrl(src)} className="h-32 w-full rounded-lg object-cover" />
+  ) : (
+    <div className="h-32 w-full rounded-lg bg-gray-100 flex items-center justify-center text-gray-400">
+      <Utensils className="h-9 w-9" />
+    </div>
+  );
+}
 
 export default function AdminMenuPage() {
   const [categories, setCategories] = useState<Category[]>([]);
+  const [availableAddOns, setAvailableAddOns] = useState<AddOn[]>([]);
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
@@ -29,6 +53,8 @@ export default function AdminMenuPage() {
   // Menu item modal state
   const [showMenuItemModal, setShowMenuItemModal] = useState(false);
   const [editingMenuItem, setEditingMenuItem] = useState<MenuItem | null>(null);
+  const [uploadingImage, setUploadingImage] = useState(false);
+  const imageInputRef = useRef<HTMLInputElement>(null);
   const [menuItemForm, setMenuItemForm] = useState<MenuItemForm>({
     name: "",
     description: "",
@@ -38,21 +64,63 @@ export default function AdminMenuPage() {
     preparationTimeMinutes: "",
     categoryId: "",
     available: true,
+    addOns: [],
   });
+  const [selectedAddOnId, setSelectedAddOnId] = useState("");
+  const [newAddOnName, setNewAddOnName] = useState("");
+  const [newAddOnPrice, setNewAddOnPrice] = useState("");
+  const [newAddOnDietaryType, setNewAddOnDietaryType] = useState<"veg" | "non-veg" | "">("");
+  const [addOnAction, setAddOnAction] = useState<"create" | "attach" | null>(null);
+  const [removingAddOnId, setRemovingAddOnId] = useState<number | null>(null);
+  const [addOnMessage, setAddOnMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const addOnActionInProgress = useRef(false);
+  const removalInProgress = useRef(false);
 
   const showMessage = useCallback((type: 'success' | 'error', text: string) => {
     setMessage({ type, text });
     setTimeout(() => setMessage(null), 3000);
   }, []);
 
+  const createMenuItemRequest = (form: MenuItemForm, addOns: MenuItemAddOn[]): MenuItemRequest => ({
+    name: form.name.trim(),
+    description: form.description.trim(),
+    price: parseFloat(form.price),
+    imageUrl: form.imageUrl.trim(),
+    dietaryType: form.dietaryType,
+    preparationTimeMinutes: form.preparationTimeMinutes
+      ? parseInt(form.preparationTimeMinutes, 10)
+      : undefined,
+    categoryId: parseInt(form.categoryId, 10),
+    available: form.available,
+    addOns: addOns.filter((addOn): addOn is MenuItemAddOn & { id: number } => addOn.id !== undefined)
+      .map(({ id }) => ({ id })),
+  });
+
+  const persistAddOnSelection = async (addOns: MenuItemAddOn[]) => {
+    if (!editingMenuItem) return;
+    const updated = await apiService.updateMenuItem(
+      editingMenuItem.id,
+      createMenuItemRequest(menuItemForm, addOns),
+    );
+    setEditingMenuItem(updated);
+    setMenuItems((items) => items.map((item) => item.id === updated.id ? updated : item));
+  };
+
+  const setAddOnFeedback = (type: "success" | "error", text: string) => {
+    setAddOnMessage({ type, text });
+    if (type === "success") showMessage("success", text);
+  };
+
   const loadData = useCallback(async () => {
     try {
-      const [categoriesData, menuItemsData] = await Promise.all([
+      const [categoriesData, menuItemsData, addOnsData] = await Promise.all([
         apiService.getCategories(),
         apiService.getMenu(),
+        apiService.getAddOns(),
       ]);
       setCategories(categoriesData);
       setMenuItems(menuItemsData);
+      setAvailableAddOns(addOnsData);
     } catch {
       showMessage('error', 'Failed to load menu data');
     } finally {
@@ -129,18 +197,19 @@ export default function AdminMenuPage() {
     }
 
     try {
-      const request: MenuItemRequest = {
-        name: menuItemForm.name.trim(),
-        description: menuItemForm.description.trim(),
-        price: parseFloat(menuItemForm.price),
-        imageUrl: menuItemForm.imageUrl.trim(),
-        dietaryType: menuItemForm.dietaryType,
-        preparationTimeMinutes: menuItemForm.preparationTimeMinutes
-          ? parseInt(menuItemForm.preparationTimeMinutes, 10)
-          : undefined,
-        categoryId: parseInt(menuItemForm.categoryId),
-        available: menuItemForm.available,
-      };
+      const savedAddOns = await Promise.all(menuItemForm.addOns.map(async (addOn) => {
+        const payload = {
+          name: addOn.name.trim(),
+          description: addOn.description,
+          price: addOn.price,
+          dietaryType: addOn.dietaryType || "",
+          available: addOn.available,
+        };
+        return addOn.id
+          ? apiService.updateAddOn(addOn.id, payload)
+          : apiService.createAddOn(payload);
+      }));
+      const request = createMenuItemRequest(menuItemForm, savedAddOns);
 
       if (editingMenuItem) {
         await apiService.updateMenuItem(editingMenuItem.id, request);
@@ -159,8 +228,10 @@ export default function AdminMenuPage() {
         preparationTimeMinutes: "",
         categoryId: "",
         available: true,
+        addOns: [],
       });
       setEditingMenuItem(null);
+      setAddOnMessage(null);
       loadData();
     } catch (error) {
       showMessage('error', error instanceof Error ? error.message : 'Failed to save menu item');
@@ -178,8 +249,146 @@ export default function AdminMenuPage() {
       preparationTimeMinutes: menuItem.preparationTimeMinutes?.toString() || "",
       categoryId: menuItem.category?.id?.toString() || "",
       available: menuItem.available,
+      addOns: (menuItem.addOns || []).map((addOn) => ({ ...addOn })),
     });
+    setSelectedAddOnId("");
+    setNewAddOnName("");
+    setNewAddOnPrice("");
+    setNewAddOnDietaryType("");
+    setAddOnMessage(null);
     setShowMenuItemModal(true);
+  };
+
+  const handleAddExistingAddOn = () => {
+    if (addOnActionInProgress.current || removalInProgress.current) return;
+    if (!selectedAddOnId) {
+      setAddOnFeedback("error", "Select an add-on to attach.");
+      return;
+    }
+    const addOn = availableAddOns.find((entry) => entry.id === Number(selectedAddOnId));
+    if (!addOn) {
+      setAddOnFeedback("error", "That add-on is no longer available. Refresh and try again.");
+      return;
+    }
+    if (menuItemForm.addOns.some((entry) => entry.id === addOn.id)) {
+      setAddOnFeedback("error", "This add-on is already attached.");
+      return;
+    }
+    const nextAddOns = [...menuItemForm.addOns, { ...addOn }];
+    addOnActionInProgress.current = true;
+    setAddOnAction("attach");
+    setMenuItemForm((current) => ({ ...current, addOns: nextAddOns }));
+    setSelectedAddOnId("");
+    void persistAddOnSelection(nextAddOns)
+      .then(() => setAddOnFeedback("success", editingMenuItem
+        ? "Add-on attached successfully."
+        : "Add-on added. Save the menu item to persist the attachment."))
+      .catch(() => setAddOnFeedback("error",
+        "Could not save the attachment yet. It will remain in this form; try saving the menu item again."))
+      .finally(() => {
+        addOnActionInProgress.current = false;
+        setAddOnAction(null);
+      });
+  };
+
+  const handleAddNewAddOn = async () => {
+    if (addOnActionInProgress.current || removalInProgress.current) return;
+    const name = newAddOnName.trim();
+    const price = Number(newAddOnPrice);
+    if (!name) {
+      setAddOnFeedback("error", "Enter an add-on name.");
+      return;
+    }
+    if (!newAddOnPrice.trim() || !Number.isFinite(price) || price <= 0) {
+      setAddOnFeedback("error", "Enter a valid price greater than zero.");
+      return;
+    }
+    if (!newAddOnDietaryType) {
+      setAddOnFeedback("error", "Choose Veg or Non-Veg for the add-on.");
+      return;
+    }
+    if (availableAddOns.some((addOn) => addOn.name.trim().toLowerCase() === name.toLowerCase())) {
+      setAddOnFeedback("error", "An add-on with this name already exists. Select it from the list instead.");
+      return;
+    }
+
+    addOnActionInProgress.current = true;
+    setAddOnAction("create");
+    try {
+      const created = await apiService.createAddOn({
+        name,
+        price,
+        dietaryType: newAddOnDietaryType,
+        available: true,
+      });
+      setAvailableAddOns((current) => [...current, created]);
+      const nextAddOns = [...menuItemForm.addOns, created];
+      setMenuItemForm((current) => ({ ...current, addOns: nextAddOns }));
+      setNewAddOnName("");
+      setNewAddOnPrice("");
+      setNewAddOnDietaryType("");
+      setSelectedAddOnId("");
+      try {
+        await persistAddOnSelection(nextAddOns);
+        setAddOnFeedback("success", "Add-on created successfully.");
+      } catch {
+        setAddOnFeedback("error",
+          "Add-on created, but the attachment could not be saved yet. It will remain in this form; save the menu item to retry.");
+      }
+    } catch (error) {
+      const duplicate = error instanceof Error && error.message.toLowerCase().includes("already exists");
+      setAddOnFeedback("error", duplicate
+        ? "An add-on with this name already exists. Select it from the list instead."
+        : "Could not create the add-on. Check the details and try again.");
+    } finally {
+      addOnActionInProgress.current = false;
+      setAddOnAction(null);
+    }
+  };
+
+  const handleRemoveAddOn = async (addOn: MenuItemAddOn, index: number) => {
+    if (addOnActionInProgress.current || removalInProgress.current) return;
+    const nextAddOns = menuItemForm.addOns.filter((_, addOnIndex) => addOnIndex !== index);
+    removalInProgress.current = true;
+    setRemovingAddOnId(addOn.id ?? -(index + 1));
+    try {
+      await persistAddOnSelection(nextAddOns);
+      setMenuItemForm((current) => ({ ...current, addOns: nextAddOns }));
+      setAddOnFeedback("success", editingMenuItem
+        ? "Add-on removed successfully."
+        : "Add-on removed. Save the menu item to persist the change.");
+    } catch {
+      setAddOnFeedback("error",
+        "Could not save the removal yet. It will remain in this form; save the menu item again to retry.");
+    } finally {
+      removalInProgress.current = false;
+      setRemovingAddOnId(null);
+    }
+  };
+
+  const handleUploadMenuImage = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.currentTarget.files?.[0];
+    event.currentTarget.value = "";
+    if (!file) return;
+    if (!["image/jpeg", "image/png", "image/gif"].includes(file.type)) {
+      showMessage("error", "Choose a JPEG, PNG, or GIF image");
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      showMessage("error", "Image must be 5 MB or smaller");
+      return;
+    }
+
+    setUploadingImage(true);
+    try {
+      const result = await apiService.uploadMenuImage(file);
+      setMenuItemForm((current) => ({ ...current, imageUrl: result.imageUrl }));
+      showMessage("success", "Image uploaded");
+    } catch (error) {
+      showMessage("error", error instanceof Error ? error.message : "Failed to upload image");
+    } finally {
+      setUploadingImage(false);
+    }
   };
 
   const handleDeleteMenuItem = async (menuItem: MenuItem) => {
@@ -257,7 +466,12 @@ export default function AdminMenuPage() {
               preparationTimeMinutes: "",
               categoryId: "",
               available: true,
+              addOns: [],
             });
+            setSelectedAddOnId("");
+            setNewAddOnName("");
+            setNewAddOnPrice("");
+            setAddOnMessage(null);
             setShowMenuItemModal(true);
           }}
           className="flex items-center gap-2 bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition-colors"
@@ -284,7 +498,7 @@ export default function AdminMenuPage() {
                     <div className={`w-3 h-3 rounded-full ${
                       category.active !== false ? 'bg-green-500' : 'bg-red-500'
                     }`} />
-                    <span className="font-medium">{category.name}</span>
+                    <span className="font-medium text-black">{category.name}</span>
                   </div>
                   <div className="flex gap-2">
                     <button
@@ -332,7 +546,7 @@ export default function AdminMenuPage() {
                 >
                   <div className="flex-1">
                     <div className="flex items-center gap-2">
-                      <span className="font-medium">{item.name}</span>
+                      <span className="font-medium text-black">{item.name}</span>
                       {!item.available && (
                         <span className="text-xs bg-red-100 text-red-800 px-2 py-1 rounded">Unavailable</span>
                       )}
@@ -375,8 +589,8 @@ export default function AdminMenuPage() {
       {/* Category Modal */}
       {showCategoryModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-md mx-4">
-            <div className="flex items-center justify-between mb-4">
+          <div className="bg-white rounded-lg p-6 w-full max-w-md mx-4 max-h-[90vh] flex flex-col overflow-hidden">
+            <div className="flex items-center justify-between mb-4 flex-shrink-0">
               <h2 className="text-xl font-semibold">
                 {editingCategory ? 'Edit Category' : 'Add Category'}
               </h2>
@@ -392,8 +606,8 @@ export default function AdminMenuPage() {
               </button>
             </div>
 
-            <form onSubmit={handleSaveCategory}>
-              <div className="mb-6">
+            <form onSubmit={handleSaveCategory} className="flex min-h-0 flex-1 flex-col">
+              <div className="min-h-0 flex-1 overflow-y-auto mb-6">
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Category Name
                 </label>
@@ -407,7 +621,7 @@ export default function AdminMenuPage() {
                 />
               </div>
 
-              <div className="flex gap-3">
+              <div className="flex flex-shrink-0 gap-3 border-t border-gray-100 pt-4">
                 <button
                   type="button"
                   onClick={() => {
@@ -434,8 +648,8 @@ export default function AdminMenuPage() {
       {/* Menu Item Modal */}
       {showMenuItemModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-md mx-4">
-            <div className="flex items-center justify-between mb-4">
+          <div className="bg-white rounded-lg p-6 w-full max-w-md mx-4 max-h-[90vh] flex flex-col overflow-hidden">
+            <div className="flex items-center justify-between mb-4 flex-shrink-0">
               <h2 className="text-xl font-semibold">
                 {editingMenuItem ? 'Edit Menu Item' : 'Add Menu Item'}
               </h2>
@@ -451,6 +665,7 @@ export default function AdminMenuPage() {
                     preparationTimeMinutes: "",
                     categoryId: "",
                     available: true,
+                    addOns: [],
                   });
                   setEditingMenuItem(null);
                 }}
@@ -460,8 +675,8 @@ export default function AdminMenuPage() {
               </button>
             </div>
 
-            <form onSubmit={handleSaveMenuItem}>
-              <div className="space-y-4 mb-6">
+            <form onSubmit={handleSaveMenuItem} className="flex min-h-0 flex-1 flex-col">
+              <div className="min-h-0 flex-1 overflow-y-auto space-y-4 mb-6">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
                     Name *
@@ -526,15 +741,217 @@ export default function AdminMenuPage() {
                   </select>
                 </div>
 
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Image URL
+                <div className="space-y-3 rounded-lg border border-gray-200 p-3">
+                  <label className="block text-sm font-medium text-gray-700">
+                    Add-ons / Extras
+                  </label>
+                  <div className="flex gap-2">
+                    <select
+                      value={selectedAddOnId}
+                      onChange={(event) => setSelectedAddOnId(event.target.value)}
+                      disabled={addOnAction !== null || removingAddOnId !== null}
+                      className="min-w-0 flex-1 rounded-lg border border-gray-300 px-3 py-2 text-black"
+                    >
+                      <option value="">Select an existing add-on</option>
+                      {availableAddOns
+                        .filter((addOn) => !menuItemForm.addOns.some((attached) => attached.id === addOn.id))
+                        .map((addOn) => (
+                          <option key={addOn.id} value={addOn.id}>
+                            {addOn.name} — ₹{addOn.price.toFixed(2)}
+                            {addOn.dietaryType ? ` · ${addOn.dietaryType === "veg" ? "Veg" : "Non-Veg"}` : ""}
+                            {addOn.available ? "" : " (Unavailable)"}
+                          </option>
+                        ))}
+                    </select>
+                    <button
+                      type="button"
+                      onClick={handleAddExistingAddOn}
+                      disabled={addOnAction !== null || removingAddOnId !== null}
+                      className="rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-700 disabled:opacity-50"
+                    >
+                      {addOnAction === "attach" ? "Adding..." : "Add Existing"}
+                    </button>
+                  </div>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={newAddOnName}
+                      onChange={(event) => setNewAddOnName(event.target.value)}
+                      placeholder="New add-on name"
+                      maxLength={120}
+                      disabled={addOnAction !== null || removingAddOnId !== null}
+                      className="min-w-0 flex-1 rounded-lg border border-gray-300 px-3 py-2 text-black"
+                    />
+                    <input
+                      type="number"
+                      min="0.01"
+                      step="0.01"
+                      value={newAddOnPrice}
+                      onChange={(event) => setNewAddOnPrice(event.target.value)}
+                      placeholder="Price"
+                      aria-label="New add-on price"
+                      disabled={addOnAction !== null || removingAddOnId !== null}
+                      className="w-24 rounded-lg border border-gray-300 px-3 py-2 text-black"
+                    />
+                    <select
+                      value={newAddOnDietaryType}
+                      onChange={(event) => setNewAddOnDietaryType(
+                        event.target.value === "veg" || event.target.value === "non-veg" ? event.target.value : "",
+                      )}
+                      aria-label="New add-on dietary type"
+                      disabled={addOnAction !== null || removingAddOnId !== null}
+                      className="w-28 rounded-lg border border-gray-300 px-2 py-2 text-sm text-blue-700 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    >
+                      <option value="">Veg/Non-Veg</option>
+                      <option value="veg">Veg</option>
+                      <option value="non-veg">Non-Veg</option>
+                    </select>
+                    <button
+                      type="button"
+                      onClick={handleAddNewAddOn}
+                      disabled={addOnAction !== null || removingAddOnId !== null}
+                      className="inline-flex items-center gap-1 rounded-lg bg-blue-600 px-3 py-2 text-sm text-white hover:bg-blue-700 disabled:opacity-50"
+                    >
+                      <Plus className="h-4 w-4" />
+                      {addOnAction === "create" ? "Creating..." : "Create"}
+                    </button>
+                  </div>
+                  {addOnMessage && (
+                    <p className={`text-sm ${addOnMessage.type === "error" ? "text-red-600" : "text-green-700"}`} role="status">
+                      {addOnMessage.text}
+                    </p>
+                  )}
+                  {menuItemForm.addOns.length > 0 && (
+                    <div className="space-y-2">
+                      <p className="text-sm font-medium text-gray-700">Added add-ons</p>
+                      {menuItemForm.addOns.map((addOn, index) => {
+                        const removeKey = addOn.id ?? -(index + 1);
+                        return (
+                          <div key={addOn.id ?? `new-${index}`} className="space-y-2 rounded-md bg-gray-50 p-3">
+                            <div className="flex items-center gap-2">
+                              <input
+                                type="text"
+                                value={addOn.name}
+                                onChange={(event) => setMenuItemForm((current) => ({
+                                  ...current,
+                                  addOns: current.addOns.map((entry, entryIndex) =>
+                                    entryIndex === index ? { ...entry, name: event.target.value } : entry),
+                                }))}
+                                aria-label="Add-on name"
+                                className="min-w-0 flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm text-black"
+                                required
+                              />
+                              <input
+                                type="number"
+                                min="0"
+                                step="0.01"
+                                value={addOn.price}
+                                onChange={(event) => setMenuItemForm((current) => ({
+                                  ...current,
+                                  addOns: current.addOns.map((entry, entryIndex) =>
+                                    entryIndex === index
+                                      ? { ...entry, price: event.target.value === "" ? 0 : Number(event.target.value) }
+                                      : entry),
+                                }))}
+                                aria-label={`${addOn.name} price`}
+                                className="w-24 rounded-lg border border-gray-300 px-3 py-2 text-sm text-black"
+                                required
+                              />
+                              <select
+                                value={addOn.dietaryType ?? ""}
+                                onChange={(event) => setMenuItemForm((current) => ({
+                                  ...current,
+                                  addOns: current.addOns.map((entry, entryIndex) =>
+                                    entryIndex === index
+                                      ? {
+                                        ...entry,
+                                        dietaryType: event.target.value === "veg" || event.target.value === "non-veg"
+                                          ? event.target.value
+                                          : "",
+                                      }
+                                      : entry),
+                                }))}
+                                aria-label={`${addOn.name} dietary type`}
+                                className="w-24 rounded-lg border border-gray-300 px-2 py-2 text-xs text-blue-700 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                              >
+                                <option value="">Veg/Non-Veg</option>
+                                <option value="veg">Veg</option>
+                                <option value="non-veg">Non-Veg</option>
+                              </select>
+                              <button
+                                type="button"
+                                onClick={() => void handleRemoveAddOn(addOn, index)}
+                                disabled={addOnAction !== null || removingAddOnId !== null}
+                                className="shrink-0 text-sm text-red-600 hover:text-red-800 disabled:opacity-50"
+                              >
+                                {removingAddOnId === removeKey ? "Removing..." : "Remove"}
+                              </button>
+                            </div>
+                            <label className="flex items-center gap-2 text-sm text-gray-700">
+                              <input
+                                type="checkbox"
+                                checked={addOn.available}
+                                onChange={(event) => setMenuItemForm((current) => ({
+                                  ...current,
+                                  addOns: current.addOns.map((entry, entryIndex) =>
+                                    entryIndex === index ? { ...entry, available: event.target.checked } : entry),
+                                }))}
+                              />
+                              Available
+                            </label>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+
+                <div className="space-y-3">
+                  <label className="block text-sm font-medium text-gray-700">
+                    Food Image
+                  </label>
+                  <MenuImagePreview imageUrl={menuItemForm.imageUrl} />
+                  <div className="flex items-center gap-3">
+                    <input
+                      ref={imageInputRef}
+                      type="file"
+                      accept="image/jpeg,image/png,image/gif"
+                      onChange={handleUploadMenuImage}
+                      disabled={uploadingImage}
+                      className="sr-only"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => imageInputRef.current?.click()}
+                      disabled={uploadingImage}
+                      className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      <Upload className="h-4 w-4" />
+                      {menuItemForm.imageUrl ? "Replace Image" : "Upload Image"}
+                    </button>
+                    {menuItemForm.imageUrl && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setMenuItemForm((current) => ({ ...current, imageUrl: "" }));
+                          if (imageInputRef.current) imageInputRef.current.value = "";
+                        }}
+                        className="shrink-0 text-sm text-red-600 hover:text-red-800"
+                      >
+                        Remove
+                      </button>
+                    )}
+                  </div>
+                  {uploadingImage && <p className="text-sm text-gray-500">Uploading image...</p>}
+                  <label className="block text-sm font-medium text-gray-700">
+                    Or paste an image URL
                   </label>
                   <input
-                    type="url"
+                    type="text"
                     value={menuItemForm.imageUrl}
                     onChange={(e) => setMenuItemForm({ ...menuItemForm, imageUrl: e.target.value })}
                     placeholder="https://example.com/image.jpg"
+                    disabled={uploadingImage}
                     className="w-full border border-gray-300 rounded-lg px-3 py-2 text-black focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
@@ -587,7 +1004,7 @@ export default function AdminMenuPage() {
                 </div>
               </div>
 
-              <div className="flex gap-3">
+              <div className="flex flex-shrink-0 gap-3 border-t border-gray-100 pt-4">
                 <button
                   type="button"
                   onClick={() => {
@@ -601,6 +1018,7 @@ export default function AdminMenuPage() {
                       preparationTimeMinutes: "",
                       categoryId: "",
                       available: true,
+                      addOns: [],
                     });
                     setEditingMenuItem(null);
                   }}
@@ -610,7 +1028,8 @@ export default function AdminMenuPage() {
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
+                  disabled={uploadingImage || addOnAction !== null || removingAddOnId !== null}
+                  className="flex-1 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
                 >
                   Save
                 </button>

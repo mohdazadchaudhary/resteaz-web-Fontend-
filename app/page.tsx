@@ -1,6 +1,6 @@
 "use client";
 import React, { useState, useMemo, useEffect, useCallback, useRef } from "react";
-import { apiService, Category, MenuItem as ApiMenuItem, OrderItemRequest, OrderResponse, Restaurant, Table } from "@/lib/api";
+import { apiService, AddOn, Category, MenuItem as ApiMenuItem, OrderItemRequest, OrderResponse, Restaurant, Table, resolveImageUrl } from "@/lib/api";
 import { useRouter } from "next/navigation";
 import {
   QrCode,
@@ -30,6 +30,7 @@ type CartItem = {
   cartId: string;
   menuItem: MenuItem;
   quantity: number;
+  addOns: AddOn[];
 };
 type Order = {
   id: string;
@@ -46,6 +47,19 @@ type Order = {
   paymentStatus: string;
 };
 type Notification = { message: string; type: "success" | "error" | "info" };
+
+function MenuItemImage({ imageUrl, name, className }: { imageUrl?: string | null; name: string; className: string }) {
+  const [failedUrl, setFailedUrl] = useState<string | null>(null);
+  const src = resolveImageUrl(imageUrl);
+
+  return src && failedUrl !== src ? (
+    <img src={src} alt={name} onError={() => setFailedUrl(src)} className={className} loading="lazy" />
+  ) : (
+    <div className={`${className} flex items-center justify-center bg-stone-100 text-stone-300`}>
+      <Utensils className="h-12 w-12" />
+    </div>
+  );
+}
 
 export default function App() {
   const router = useRouter();
@@ -80,6 +94,7 @@ export default function App() {
 
   // Customization Modal
   const [customizingItem, setCustomizingItem] = useState<MenuItem | null>(null);
+  const [selectedAddOnIds, setSelectedAddOnIds] = useState<number[]>([]);
   const [orderError, setOrderError] = useState<string | null>(null);
   const idempotencyKey = useRef<{ fingerprint: string; key: string } | null>(null);
 
@@ -145,7 +160,7 @@ export default function App() {
     items: order.items.map((item) => ({
       name: item.name,
       qty: item.quantity,
-      addons: [],
+      addons: item.addOns.map((addOn) => addOn.name),
     })),
     total: order.totalAmount,
     paymentStatus: order.paymentStatus,
@@ -205,7 +220,9 @@ export default function App() {
   }, [menuItems, selectedCategory, dietFilter, searchQuery]);
 
   const cartSubtotal = useMemo(() => {
-    return cart.reduce((sum, item) => sum + item.menuItem.price * item.quantity, 0);
+    return cart.reduce((sum, item) =>
+      sum + (item.menuItem.price + item.addOns.reduce((addOnSum, addOn) => addOnSum + addOn.price, 0))
+        * item.quantity, 0);
   }, [cart]);
 
   const grandTotal = cartSubtotal;
@@ -216,6 +233,7 @@ export default function App() {
     ?? null;
 
   const handleOpenCustomization = (item: MenuItem) => {
+    setSelectedAddOnIds([]);
     setCustomizingItem(item);
   };
 
@@ -226,6 +244,8 @@ export default function App() {
       cartId: cartItemId,
       menuItem: customizingItem,
       quantity: 1,
+      addOns: (customizingItem.addOns ?? [])
+        .filter((addOn) => addOn.available && selectedAddOnIds.includes(addOn.id)),
     };
 
     setCart((prev) => [...prev, newItem]);
@@ -235,6 +255,12 @@ export default function App() {
       "success",
     );
   };
+
+  const customizationTotal = customizingItem
+    ? customizingItem.price + (customizingItem.addOns ?? [])
+      .filter((addOn) => selectedAddOnIds.includes(addOn.id))
+      .reduce((sum, addOn) => sum + addOn.price, 0)
+    : 0;
 
   const handleUpdateQuantity = (cartId: string, delta: number) => {
     setCart((prev) =>
@@ -278,9 +304,10 @@ export default function App() {
 
     setIsPlacingOrder(true);
     setOrderError(null);
-    const items: OrderItemRequest[] = cart.map(({ menuItem, quantity }) => ({
+    const items: OrderItemRequest[] = cart.map(({ menuItem, quantity, addOns }) => ({
       menuItemId: menuItem.id,
       quantity,
+      addOns: addOns.map((addOn) => ({ addOnId: addOn.id, quantity: 1 })),
     }));
     const fingerprint = JSON.stringify({ tableId: selectedTable.id, items });
     if (idempotencyKey.current?.fingerprint !== fingerprint) {
@@ -751,18 +778,11 @@ export default function App() {
                     <div>
                       {/* Image Thumbnail with badges */}
                       <div className="relative h-48 w-full overflow-hidden bg-stone-100">
-                        {item.imageUrl ? (
-                          <img
-                            src={item.imageUrl}
-                            alt={item.name}
-                            className="w-full h-full object-cover group-hover:scale-105 transition duration-500"
-                            loading="lazy"
-                          />
-                        ) : (
-                          <div className="w-full h-full flex items-center justify-center text-stone-300">
-                            <Utensils className="w-12 h-12" />
-                          </div>
-                        )}
+                        <MenuItemImage
+                          imageUrl={item.imageUrl}
+                          name={item.name}
+                          className="w-full h-full object-cover group-hover:scale-105 transition duration-500"
+                        />
                         <div className="absolute top-3 left-3">
                           {renderDietBadge(item.dietaryType)}
                         </div>
@@ -1044,13 +1064,11 @@ export default function App() {
         <div className="fixed inset-0 z-50 bg-stone-900/60 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white w-full max-w-lg rounded-2xl shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200 flex flex-col max-h-[90vh]">
             <div className="relative h-44 w-full bg-stone-100">
-              {customizingItem.imageUrl ? (
-                <img src={customizingItem.imageUrl} alt={customizingItem.name} className="w-full h-full object-cover" />
-              ) : (
-                <div className="w-full h-full flex items-center justify-center text-stone-300">
-                  <Utensils className="w-12 h-12" />
-                </div>
-              )}
+              <MenuItemImage
+                imageUrl={customizingItem.imageUrl}
+                name={customizingItem.name}
+                className="w-full h-full object-cover"
+              />
               <button
                 onClick={() => setCustomizingItem(null)}
                 className="absolute top-3 right-3 p-1.5 rounded-full bg-stone-900/70 text-white hover:bg-stone-900 transition"
@@ -1073,6 +1091,33 @@ export default function App() {
                   {customizingItem.description || "No description provided."}
                 </p>
               </div>
+              {(customizingItem.addOns ?? []).some((addOn) => addOn.available) && (
+                <div className="space-y-2">
+                  <h4 className="text-sm font-bold text-stone-900">Add extras</h4>
+                  {(customizingItem.addOns ?? []).filter((addOn) => addOn.available).map((addOn) => (
+                    <label key={addOn.id} className="flex items-center justify-between rounded-lg border border-stone-200 p-3">
+                      <span className="flex items-center gap-2 text-sm text-stone-800">
+                        <input
+                          type="checkbox"
+                          checked={selectedAddOnIds.includes(addOn.id)}
+                          onChange={(event) => setSelectedAddOnIds((current) =>
+                            event.target.checked
+                              ? [...current, addOn.id]
+                              : current.filter((id) => id !== addOn.id))}
+                          className="rounded border-stone-300 text-amber-600 focus:ring-amber-500"
+                        />
+                        {addOn.name}
+                        {addOn.dietaryType && (
+                          <span className="text-xs font-medium text-blue-700">
+                            {addOn.dietaryType === "veg" ? "Veg" : "Non-Veg"}
+                          </span>
+                        )}
+                      </span>
+                      <span className="text-sm font-semibold text-stone-800">+₹{addOn.price.toFixed(2)}</span>
+                    </label>
+                  ))}
+                </div>
+              )}
             </div>
 
             {/* Modal CTA Button */}
@@ -1082,7 +1127,7 @@ export default function App() {
                   Item Total:
                 </span>
                 <span className="text-base font-extrabold text-stone-900">
-                  ₹{customizingItem.price.toFixed(2)}
+                  ₹{customizationTotal.toFixed(2)}
                 </span>
               </div>
               <button
@@ -1168,16 +1213,27 @@ export default function App() {
                             <h4 className="text-sm font-bold text-stone-900">
                               {menuItem.name}
                             </h4>
+                            <p className="text-[11px] text-stone-500">
+                              Base ₹{menuItem.price.toFixed(2)} each
+                            </p>
+                            {item.addOns.length > 0 && (
+                              <ul className="pl-2 text-[11px] text-stone-600">
+                                {item.addOns.map((addOn) => (
+                                  <li key={addOn.id}>+ {addOn.name} ₹{addOn.price.toFixed(2)}</li>
+                                ))}
+                              </ul>
+                            )}
                           </div>
                           <span className="font-extrabold text-xs text-stone-900">
-                            ₹{(menuItem.price * item.quantity).toFixed(2)}
+                            ₹{((menuItem.price + item.addOns.reduce((sum, addOn) => sum + addOn.price, 0))
+                              * item.quantity).toFixed(2)}
                           </span>
                         </div>
 
                         {/* Quantity Incrementer */}
                         <div className="flex items-center justify-between pt-2 border-t border-stone-200/60">
                           <span className="text-[11px] text-stone-400">
-                            ₹{menuItem.price.toFixed(2)} each
+                            ₹{(menuItem.price + item.addOns.reduce((sum, addOn) => sum + addOn.price, 0)).toFixed(2)} each
                           </span>
                           <div className="flex items-center gap-2">
                             <button
