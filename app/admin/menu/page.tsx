@@ -1,8 +1,19 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { Plus, Edit, X, CheckCircle2, AlertCircle, Trash2 } from "lucide-react";
 import { apiService, Category, MenuItem, CategoryRequest, MenuItemRequest } from "@/lib/api";
+
+type MenuItemForm = {
+  name: string;
+  description: string;
+  price: string;
+  imageUrl: string;
+  dietaryType: "" | "veg" | "non-veg" | "vegan";
+  preparationTimeMinutes: string;
+  categoryId: string;
+  available: boolean;
+};
 
 export default function AdminMenuPage() {
   const [categories, setCategories] = useState<Category[]>([]);
@@ -18,20 +29,23 @@ export default function AdminMenuPage() {
   // Menu item modal state
   const [showMenuItemModal, setShowMenuItemModal] = useState(false);
   const [editingMenuItem, setEditingMenuItem] = useState<MenuItem | null>(null);
-  const [menuItemForm, setMenuItemForm] = useState({
+  const [menuItemForm, setMenuItemForm] = useState<MenuItemForm>({
     name: "",
     description: "",
     price: "",
     imageUrl: "",
+    dietaryType: "",
+    preparationTimeMinutes: "",
     categoryId: "",
     available: true,
   });
 
-  useEffect(() => {
-    loadData();
+  const showMessage = useCallback((type: 'success' | 'error', text: string) => {
+    setMessage({ type, text });
+    setTimeout(() => setMessage(null), 3000);
   }, []);
 
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     try {
       const [categoriesData, menuItemsData] = await Promise.all([
         apiService.getCategories(),
@@ -39,17 +53,17 @@ export default function AdminMenuPage() {
       ]);
       setCategories(categoriesData);
       setMenuItems(menuItemsData);
-    } catch (error) {
+    } catch {
       showMessage('error', 'Failed to load menu data');
     } finally {
       setLoading(false);
     }
-  };
+  }, [showMessage]);
 
-  const showMessage = (type: 'success' | 'error', text: string) => {
-    setMessage({ type, text });
-    setTimeout(() => setMessage(null), 3000);
-  };
+  useEffect(() => {
+    const timeout = window.setTimeout(() => void loadData(), 0);
+    return () => window.clearTimeout(timeout);
+  }, [loadData]);
 
   const handleSaveCategory = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -120,6 +134,10 @@ export default function AdminMenuPage() {
         description: menuItemForm.description.trim(),
         price: parseFloat(menuItemForm.price),
         imageUrl: menuItemForm.imageUrl.trim(),
+        dietaryType: menuItemForm.dietaryType,
+        preparationTimeMinutes: menuItemForm.preparationTimeMinutes
+          ? parseInt(menuItemForm.preparationTimeMinutes, 10)
+          : undefined,
         categoryId: parseInt(menuItemForm.categoryId),
         available: menuItemForm.available,
       };
@@ -137,6 +155,8 @@ export default function AdminMenuPage() {
         description: "",
         price: "",
         imageUrl: "",
+        dietaryType: "",
+        preparationTimeMinutes: "",
         categoryId: "",
         available: true,
       });
@@ -154,6 +174,8 @@ export default function AdminMenuPage() {
       description: menuItem.description || "",
       price: menuItem.price.toString(),
       imageUrl: menuItem.imageUrl || "",
+      dietaryType: menuItem.dietaryType || "",
+      preparationTimeMinutes: menuItem.preparationTimeMinutes?.toString() || "",
       categoryId: menuItem.category?.id?.toString() || "",
       available: menuItem.available,
     });
@@ -231,6 +253,8 @@ export default function AdminMenuPage() {
               description: "",
               price: "",
               imageUrl: "",
+              dietaryType: "",
+              preparationTimeMinutes: "",
               categoryId: "",
               available: true,
             });
@@ -378,7 +402,7 @@ export default function AdminMenuPage() {
                   value={categoryName}
                   onChange={(e) => setCategoryName(e.target.value)}
                   placeholder="e.g., Burgers"
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-black focus:outline-none focus:ring-2 focus:ring-blue-500"
                   required
                 />
               </div>
@@ -423,6 +447,8 @@ export default function AdminMenuPage() {
                     description: "",
                     price: "",
                     imageUrl: "",
+                    dietaryType: "",
+                    preparationTimeMinutes: "",
                     categoryId: "",
                     available: true,
                   });
@@ -445,7 +471,7 @@ export default function AdminMenuPage() {
                     value={menuItemForm.name}
                     onChange={(e) => setMenuItemForm({ ...menuItemForm, name: e.target.value })}
                     placeholder="e.g., Chicken Burger"
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-black focus:outline-none focus:ring-2 focus:ring-blue-500"
                     required
                   />
                 </div>
@@ -459,7 +485,7 @@ export default function AdminMenuPage() {
                     onChange={(e) => setMenuItemForm({ ...menuItemForm, description: e.target.value })}
                     placeholder="e.g., Grilled chicken burger with fresh vegetables"
                     rows={3}
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-black focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
 
@@ -474,7 +500,7 @@ export default function AdminMenuPage() {
                     value={menuItemForm.price}
                     onChange={(e) => setMenuItemForm({ ...menuItemForm, price: e.target.value })}
                     placeholder="e.g., 149"
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-black focus:outline-none focus:ring-2 focus:ring-blue-500"
                     required
                   />
                 </div>
@@ -486,7 +512,7 @@ export default function AdminMenuPage() {
                   <select
                     value={menuItemForm.categoryId}
                     onChange={(e) => setMenuItemForm({ ...menuItemForm, categoryId: e.target.value })}
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-black focus:outline-none focus:ring-2 focus:ring-blue-500"
                     required
                   >
                     <option value="">Select a category</option>
@@ -509,7 +535,41 @@ export default function AdminMenuPage() {
                     value={menuItemForm.imageUrl}
                     onChange={(e) => setMenuItemForm({ ...menuItemForm, imageUrl: e.target.value })}
                     placeholder="https://example.com/image.jpg"
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-black focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Dietary Type
+                  </label>
+                  <select
+                    value={menuItemForm.dietaryType}
+                    onChange={(e) => setMenuItemForm({
+                      ...menuItemForm,
+                      dietaryType: e.target.value === "veg" || e.target.value === "non-veg" || e.target.value === "vegan"
+                        ? e.target.value
+                        : "",
+                    })}
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-black focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="">Not specified</option>
+                    <option value="veg">Vegetarian</option>
+                    <option value="non-veg">Non-Veg</option>
+                    <option value="vegan">Vegan</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Preparation Time (minutes)
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    value={menuItemForm.preparationTimeMinutes}
+                    onChange={(e) => setMenuItemForm({ ...menuItemForm, preparationTimeMinutes: e.target.value })}
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-black focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
 
@@ -537,6 +597,8 @@ export default function AdminMenuPage() {
                       description: "",
                       price: "",
                       imageUrl: "",
+                      dietaryType: "",
+                      preparationTimeMinutes: "",
                       categoryId: "",
                       available: true,
                     });

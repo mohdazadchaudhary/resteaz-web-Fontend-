@@ -30,6 +30,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             <Link href="/" className="text-xl font-bold">RestEaz</Link>
             <div className="flex gap-4">
               <Link href="/" className="hover:text-gray-300">Home</Link>
+              <Link href="/#kds" className="hover:text-gray-300">KDS</Link>
               <Link href="/admin/tables" className="hover:text-gray-300">Admin Tables</Link>
               <Link href="/admin/menu" className="hover:text-gray-300">Admin Menu</Link>
             </div>

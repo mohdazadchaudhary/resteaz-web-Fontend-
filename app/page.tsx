@@ -1,5 +1,7 @@
 "use client";
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect, useCallback, useRef } from "react";
+import { apiService, Category, MenuItem as ApiMenuItem, OrderItemRequest, OrderResponse, Restaurant, Table } from "@/lib/api";
+import { useRouter } from "next/navigation";
 import {
   QrCode,
   Utensils,
@@ -17,223 +19,21 @@ import {
   Sparkles,
   AlertCircle,
   ArrowRight,
-  DollarSign,
-  CreditCard,
-  ShieldCheck,
   Flame,
   Leaf,
   Store,
-  Filter,
-  Bell,
   RefreshCw,
-  ChevronRight,
-  Share2,
-  ReceiptText,
 } from "lucide-react";
 
-const MENU_CATEGORIES = [
-  { id: "all", name: "All Items" },
-  { id: "starters", name: "Starters & Tapas" },
-  { id: "mains", name: "Signature Mains" },
-  { id: "woodfire", name: "Wood-Fired Pizzas" },
-  { id: "drinks", name: "Beverages & Mocktails" },
-  { id: "desserts", name: "Artisan Desserts" },
-];
-
-const INITIAL_MENU_ITEMS = [
-  {
-    id: "m1",
-    name: "Truffle Mushroom Bruschetta",
-    category: "starters",
-    price: 9.5,
-    diet: "veg",
-    rating: 4.8,
-    prepTime: "12 mins",
-    image:
-      "https://images.unsplash.com/photo-1572695157366-5e585ab2b69f?auto=format&fit=crop&w=600&q=80",
-    description:
-      "Crispy sourdough topped with wild foraged mushrooms, thyme, truffle oil, and shaved parmesan.",
-    customizations: [
-      { name: "Extra Shaved Parmesan", price: 1.5 },
-      { name: "Gluten-Free Bread Base", price: 2.0 },
-    ],
-    spiceLevels: ["Mild", "Medium"],
-  },
-  {
-    id: "m2",
-    name: "Smoked Harissa Chicken Wings",
-    category: "starters",
-    price: 11.95,
-    diet: "non-veg",
-    rating: 4.9,
-    prepTime: "15 mins",
-    image:
-      "https://images.unsplash.com/photo-1567620832903-9fc6debc209f?auto=format&fit=crop&w=600&q=80",
-    description:
-      "Slow-smoked chicken wings tossed in fiery homemade North African harissa glaze with cooling tzatziki dip.",
-    customizations: [
-      { name: "Blue Cheese Dip", price: 1.25 },
-      { name: "Extra Ranch", price: 1.0 },
-    ],
-    spiceLevels: ["Medium", "Hot", "Extra Fiery 🔥"],
-  },
-  {
-    id: "m3",
-    name: "Charred Margherita Verace",
-    category: "woodfire",
-    price: 14.5,
-    diet: "veg",
-    rating: 4.9,
-    prepTime: "14 mins",
-    image:
-      "https://images.unsplash.com/photo-1604382355076-af4b0eb60143?auto=format&fit=crop&w=600&q=80",
-    description:
-      "San Marzano DOP tomato sauce, fresh buffalo mozzarella, fresh sweet basil, and extra virgin olive oil.",
-    customizations: [
-      { name: "Buffalo Mozzarella Stuffed Crust", price: 3.5 },
-      { name: "Kalamata Olives & Capers", price: 2.0 },
-    ],
-    spiceLevels: ["Mild"],
-  },
-  {
-    id: "m4",
-    name: "Spicy Pepperoni & Hot Honey",
-    category: "woodfire",
-    price: 16.5,
-    diet: "non-veg",
-    rating: 4.95,
-    prepTime: "16 mins",
-    image:
-      "https://images.unsplash.com/photo-1628840042765-356cda07504e?auto=format&fit=crop&w=600&q=80",
-    description:
-      "Crispy cup-and-char artisan beef pepperoni, crushed chili flakes, and organic chili hot honey drizzle.",
-    customizations: [
-      { name: "Extra Hot Honey Pot", price: 1.5 },
-      { name: "Add Pickled Jalapeños", price: 1.5 },
-    ],
-    spiceLevels: ["Medium", "Hot"],
-  },
-  {
-    id: "m5",
-    name: "Smoked Wagyu Smash Burger",
-    category: "mains",
-    price: 17.5,
-    diet: "non-veg",
-    rating: 4.9,
-    prepTime: "18 mins",
-    image:
-      "https://images.unsplash.com/photo-1568901346375-23c9450c58cd?auto=format&fit=crop&w=600&q=80",
-    description:
-      "Double seared wagyu patties, aged cheddar, caramelised shallots, smoked bacon jam, and brioche bun with skin-on fries.",
-    customizations: [
-      { name: "Truffle Fries Upgrade", price: 3.0 },
-      { name: "Fried Pasture Egg", price: 1.75 },
-    ],
-    spiceLevels: ["Mild", "Medium"],
-  },
-  {
-    id: "m6",
-    name: "Pan-Seared Mediterranean Salmon",
-    category: "mains",
-    price: 21.0,
-    diet: "non-veg",
-    rating: 4.85,
-    prepTime: "20 mins",
-    image:
-      "https://images.unsplash.com/photo-1467003909585-2f8a72700288?auto=format&fit=crop&w=600&q=80",
-    description:
-      "Crispy skin Atlantic salmon over roasted lemon-herb couscous, asparagus spears, and saffron beurre blanc.",
-    customizations: [{ name: "Extra Saffron Sauce", price: 2.0 }],
-    spiceLevels: ["Mild"],
-  },
-  {
-    id: "m7",
-    name: "Buddha Superfood Bowl",
-    category: "mains",
-    price: 13.5,
-    diet: "vegan",
-    rating: 4.7,
-    prepTime: "10 mins",
-    image:
-      "https://images.unsplash.com/photo-1540420773420-3366772f4999?auto=format&fit=crop&w=600&q=80",
-    description:
-      "Quinoa, organic spiced chickpeas, charred broccolini, sliced avocado, edamame, and tahini-ginger dressing.",
-    customizations: [
-      { name: "Grilled Herb Tofu", price: 2.5 },
-      { name: "Extra Avocado Scoop", price: 2.0 },
-    ],
-    spiceLevels: ["Mild", "Medium"],
-  },
-  {
-    id: "m8",
-    name: "Yuzu Passionfruit Sparkler",
-    category: "drinks",
-    price: 6.5,
-    diet: "vegan",
-    rating: 4.8,
-    prepTime: "5 mins",
-    image:
-      "https://images.unsplash.com/photo-1513558161293-cdaf765ed2fd?auto=format&fit=crop&w=600&q=80",
-    description:
-      "Japanese yuzu citrus, fresh passionfruit pulp, crushed mint leaves, and effervescent sparkling soda.",
-    customizations: [
-      { name: "Add Boba Pearls", price: 1.0 },
-      { name: "Less Sweet / No Sugar", price: 0 },
-    ],
-    spiceLevels: [],
-  },
-  {
-    id: "m9",
-    name: "Valrhona Molten Lava Cake",
-    category: "desserts",
-    price: 9.0,
-    diet: "veg",
-    rating: 4.95,
-    prepTime: "15 mins",
-    image:
-      "https://images.unsplash.com/photo-1606313564200-e75d5e30476c?auto=format&fit=crop&w=600&q=80",
-    description:
-      "Rich dark 70% chocolate warm cake with a molten center, served with Madagascar vanilla bean gelato.",
-    customizations: [
-      { name: "Double Scoop Gelato", price: 2.5 },
-      { name: "Warm Salted Caramel Sauce", price: 1.25 },
-    ],
-    spiceLevels: [],
-  },
-];
-
-/* Delivery configuration rules for local area */
-const DELIVERY_CONFIG = {
-  minOrder: 15.0,
-  deliveryFee: 2.99,
-  freeDeliveryThreshold: 40.0,
-  allowedPincodes: [
-    "10001",
-    "10002",
-    "10003",
-    "10004",
-    "10005",
-    "90210",
-    "560001",
-    "560034",
-    "560102",
-  ],
-  estimatedDeliveryTime: "30 - 45 mins",
-  pickupTime: "15 - 20 mins",
-};
-
-type MenuItem = (typeof INITIAL_MENU_ITEMS)[number];
+type MenuItem = ApiMenuItem;
 type CartItem = {
   cartId: string;
-  id: string;
-  name: string;
-  price: number;
+  menuItem: MenuItem;
   quantity: number;
-  selectedSpice: string;
-  addons: { name: string; price: number }[];
 };
 type Order = {
   id: string;
+  backendId: number;
   type: string;
   table?: string | null;
   address?: string | null;
@@ -243,30 +43,31 @@ type Order = {
   status: string;
   items: { name: string; qty: number; addons: string[] }[];
   total: number;
-  paymentMethod: string;
   paymentStatus: string;
 };
 type Notification = { message: string; type: "success" | "error" | "info" };
 
 export default function App() {
+  const router = useRouter();
   // Navigation View: 'customer' or 'kitchen'
   const [activeView, setActiveView] = useState("customer");
+  const [restaurants, setRestaurants] = useState<Restaurant[]>([]);
+  const [tables, setTables] = useState<Table[]>([]);
+  const [selectedTable, setSelectedTable] = useState<Table | null>(null);
+  const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [menuLoading, setMenuLoading] = useState(true);
+  const [menuError, setMenuError] = useState<string | null>(null);
+  const [kdsRestaurantId, setKdsRestaurantId] = useState<number | null>(null);
+  const [kdsLoading, setKdsLoading] = useState(false);
+  const [kdsError, setKdsError] = useState<string | null>(null);
 
   // Ordering mode: 'dine_in' | 'delivery' | 'pickup'
   const [orderMode, setOrderMode] = useState("dine_in");
 
   // Table for Dine-In
-  const [tableNumber, setTableNumber] = useState("Table 4");
+  const tableNumber = selectedTable ? `Table ${selectedTable.tableNumber}` : "Select a table";
   const [showQRSimulator, setShowQRSimulator] = useState(false);
-
-  // Delivery details
-  const [deliveryDetails, setDeliveryDetails] = useState({
-    name: "Alex Morgan",
-    phone: "+1 (555) 234-5678",
-    pincode: "10001",
-    address: "Apt 4B, 142 Riverfront Ave",
-    instructions: "Ring doorbell, leave with front concierge if unavailable.",
-  });
 
   // Menu, Search & Filter
   const [selectedCategory, setSelectedCategory] = useState("all");
@@ -274,76 +75,16 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState("");
 
   // Cart Management
-  const [cart, setCart] = useState<CartItem[]>([
-    {
-      cartId: "item-demo-1",
-      id: "m1",
-      name: "Truffle Mushroom Bruschetta",
-      price: 9.5,
-      quantity: 1,
-      selectedSpice: "Mild",
-      addons: [{ name: "Extra Shaved Parmesan", price: 1.5 }],
-    },
-    {
-      cartId: "item-demo-2",
-      id: "m3",
-      name: "Charred Margherita Verace",
-      price: 14.5,
-      quantity: 1,
-      selectedSpice: "Mild",
-      addons: [],
-    },
-  ]);
+  const [cart, setCart] = useState<CartItem[]>([]);
   const [isCartOpen, setIsCartOpen] = useState(false);
 
   // Customization Modal
   const [customizingItem, setCustomizingItem] = useState<MenuItem | null>(null);
-  const [selectedSpice, setSelectedSpice] = useState("");
-  const [selectedAddons, setSelectedAddons] = useState<{ name: string; price: number }[]>([]);
+  const [orderError, setOrderError] = useState<string | null>(null);
+  const idempotencyKey = useRef<{ fingerprint: string; key: string } | null>(null);
 
-  // Live Orders for Kitchen / Manager View
-  const [orders, setOrders] = useState<Order[]>([
-    {
-      id: "ORD-8941",
-      type: "dine_in",
-      table: "Table 2",
-      customer: "Sarah Jenkins",
-      phone: "+1 (555) 902-1123",
-      time: "12 mins ago",
-      status: "preparing", // pending, preparing, ready, completed
-      items: [
-        {
-          name: "Smoked Wagyu Smash Burger",
-          qty: 2,
-          addons: ["Truffle Fries Upgrade"],
-        },
-        { name: "Yuzu Passionfruit Sparkler", qty: 2, addons: [] },
-      ],
-      total: 44.0,
-      paymentMethod: "Pay at Counter",
-      paymentStatus: "Unpaid",
-    },
-    {
-      id: "ORD-8940",
-      type: "delivery",
-      address: "74 Greenfield Terrace, Apt 12, Pincode: 10001",
-      customer: "David Chen",
-      phone: "+1 (555) 887-3401",
-      time: "24 mins ago",
-      status: "ready", // Out for delivery
-      items: [
-        { name: "Charred Margherita Verace", qty: 1, addons: [] },
-        {
-          name: "Smoked Harissa Chicken Wings",
-          qty: 1,
-          addons: ["Blue Cheese Dip"],
-        },
-      ],
-      total: 29.7,
-      paymentMethod: "UPI / Online Card",
-      paymentStatus: "Paid",
-    },
-  ]);
+  // This is the single KDS queue, loaded from persisted backend orders.
+  const [orders, setOrders] = useState<Order[]>([]);
 
   // Alert / Toast Notification state
   const [notification, setNotification] = useState<Notification | null>(null);
@@ -355,59 +96,136 @@ export default function App() {
     }, 3800);
   };
 
-  const isPincodeEligible =
-    orderMode !== "delivery" ||
-    DELIVERY_CONFIG.allowedPincodes.includes(deliveryDetails.pincode.trim());
+  const selectTable = (table: Table) => {
+    selectTable(table);
+    const query = new URLSearchParams(window.location.search);
+    query.set("qrToken", table.qrToken);
+    window.history.replaceState(null, "", `${window.location.pathname}?${query.toString()}${window.location.hash}`);
+  };
+
+  const loadCustomerMenu = useCallback(async () => {
+    setMenuLoading(true);
+    setMenuError(null);
+    try {
+      const [restaurantData, tableData, categoryData, menuData] = await Promise.all([
+        apiService.getRestaurants(),
+        apiService.getAllTables(),
+        apiService.getCategories(),
+        apiService.getMenu(),
+      ]);
+      const activeTables = tableData.filter((table) => table.active && table.restaurant.active);
+      const scannedToken = new URLSearchParams(window.location.search).get("qrToken");
+      const scannedTable = scannedToken
+        ? await apiService.getTableByQrToken(scannedToken)
+        : null;
+      const initialTable = scannedTable ?? activeTables[0] ?? null;
+
+      setRestaurants(restaurantData.filter((restaurant) => restaurant.active));
+      setTables(activeTables);
+      setSelectedTable(initialTable);
+      setCategories(categoryData);
+      setMenuItems(menuData);
+      setKdsRestaurantId(initialTable?.restaurant.id ?? restaurantData.find((r) => r.active)?.id ?? null);
+    } catch (error) {
+      setMenuError(error instanceof Error ? error.message : "Unable to load menu.");
+    } finally {
+      setMenuLoading(false);
+    }
+  }, []);
+
+  const toKdsOrder = (order: OrderResponse): Order => ({
+    id: `ORD-${order.id}`,
+    backendId: order.id,
+    type: "dine_in",
+    table: `Table ${order.tableNumber}`,
+    customer: order.customerName || "Guest",
+    phone: order.customerPhone || "",
+    time: new Date(order.createdAt).toLocaleTimeString(),
+    status: order.status.toLowerCase(),
+    items: order.items.map((item) => ({
+      name: item.name,
+      qty: item.quantity,
+      addons: [],
+    })),
+    total: order.totalAmount,
+    paymentStatus: order.paymentStatus,
+  });
+
+  const loadKdsOrders = useCallback(async (id: number) => {
+    setKdsLoading(true);
+    try {
+      const restaurantOrders = await apiService.getRestaurantOrders(id);
+      setOrders(restaurantOrders.map(toKdsOrder));
+      setKdsError(null);
+    } catch (error) {
+      setKdsError(error instanceof Error ? error.message : "Could not load kitchen orders");
+    } finally {
+      setKdsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    const syncKdsRoute = () => {
+      setActiveView(window.location.hash === "#kds" ? "kitchen" : "customer");
+    };
+    window.addEventListener("hashchange", syncKdsRoute);
+    const routeSync = window.setTimeout(syncKdsRoute, 0);
+    const initialLoad = window.setTimeout(() => {
+      if (active) void loadCustomerMenu();
+    }, 0);
+    return () => {
+      active = false;
+      window.clearTimeout(routeSync);
+      window.clearTimeout(initialLoad);
+      window.removeEventListener("hashchange", syncKdsRoute);
+    };
+  }, [loadCustomerMenu]);
+
+  useEffect(() => {
+    if (kdsRestaurantId === null) return;
+    const initialRefresh = window.setTimeout(() => void loadKdsOrders(kdsRestaurantId), 0);
+    const interval = window.setInterval(() => void loadKdsOrders(kdsRestaurantId), 8000);
+    return () => {
+      window.clearTimeout(initialRefresh);
+      window.clearInterval(interval);
+    };
+  }, [kdsRestaurantId, loadKdsOrders]);
 
   const filteredMenuItems = useMemo(() => {
-    return INITIAL_MENU_ITEMS.filter((item) => {
+    return menuItems.filter((item) => {
       const matchesCategory =
-        selectedCategory === "all" || item.category === selectedCategory;
-      const matchesDiet = dietFilter === "all" || item.diet === dietFilter;
+        selectedCategory === "all" || item.category?.id === Number(selectedCategory);
+      const matchesDiet = dietFilter === "all" || item.dietaryType === dietFilter;
       const matchesSearch =
         item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        item.description.toLowerCase().includes(searchQuery.toLowerCase());
+        (item.description ?? "").toLowerCase().includes(searchQuery.toLowerCase());
       return matchesCategory && matchesDiet && matchesSearch;
     });
-  }, [selectedCategory, dietFilter, searchQuery]);
+  }, [menuItems, selectedCategory, dietFilter, searchQuery]);
 
   const cartSubtotal = useMemo(() => {
-    return cart.reduce((sum, item) => {
-      const addonsTotal = item.addons.reduce(
-        (aSum, add) => aSum + add.price,
-        0,
-      );
-      return sum + (item.price + addonsTotal) * item.quantity;
-    }, 0);
+    return cart.reduce((sum, item) => sum + item.menuItem.price * item.quantity, 0);
   }, [cart]);
 
-  const deliveryFee = useMemo(() => {
-    if (orderMode !== "delivery") return 0;
-    if (cartSubtotal >= DELIVERY_CONFIG.freeDeliveryThreshold) return 0;
-    return DELIVERY_CONFIG.deliveryFee;
-  }, [orderMode, cartSubtotal]);
-
-  const tax = cartSubtotal * 0.08; // 8% sales tax
-  const grandTotal = cartSubtotal + deliveryFee + tax;
+  const grandTotal = cartSubtotal;
   const cartItemCount = cart.reduce((count, i) => count + i.quantity, 0);
+  const restaurant = selectedTable?.restaurant
+    ?? restaurants.find((item) => item.id === kdsRestaurantId)
+    ?? restaurants[0]
+    ?? null;
 
   const handleOpenCustomization = (item: MenuItem) => {
     setCustomizingItem(item);
-    setSelectedSpice(item.spiceLevels.length > 0 ? item.spiceLevels[0] : "");
-    setSelectedAddons([]);
   };
 
   const handleAddToCartWithCustomization = () => {
-    if (!customizingItem) return;
+    if (!customizingItem || !customizingItem.available || customizingItem.category?.active === false) return;
     const cartItemId = `${customizingItem.id}-${Date.now()}`;
     const newItem = {
       cartId: cartItemId,
-      id: customizingItem.id,
-      name: customizingItem.name,
-      price: customizingItem.price,
+      menuItem: customizingItem,
       quantity: 1,
-      selectedSpice: selectedSpice,
-      addons: selectedAddons,
     };
 
     setCart((prev) => [...prev, newItem]);
@@ -432,101 +250,83 @@ export default function App() {
     );
   };
 
-  const [selectedPayment, setSelectedPayment] = useState("counter");
   const [isOrderPlacedSuccess, setIsOrderPlacedSuccess] = useState(false);
   const [lastPlacedOrderId, setLastPlacedOrderId] = useState("");
+  const [isPlacingOrder, setIsPlacingOrder] = useState(false);
 
-  const handlePlaceOrder = () => {
+  const handlePlaceOrder = async () => {
     if (cart.length === 0) {
       showNotification("Your tray is empty!", "error");
       return;
     }
-
-    if (orderMode === "delivery") {
-      if (!isPincodeEligible) {
-        showNotification(
-          "Delivery is not available in your pincode area.",
-          "error",
-        );
-        return;
-      }
-      if (cartSubtotal < DELIVERY_CONFIG.minOrder) {
-        showNotification(
-          `Minimum delivery order is $${DELIVERY_CONFIG.minOrder.toFixed(2)}`,
-          "error",
-        );
-        return;
-      }
-      if (
-        !deliveryDetails.name ||
-        !deliveryDetails.phone ||
-        !deliveryDetails.address
-      ) {
-        showNotification(
-          "Please fill in complete delivery contact and address details",
-          "error",
-        );
-        return;
-      }
+    if (orderMode !== "dine_in") {
+      setOrderError("Delivery and pickup are not supported by the current order API.");
+      return;
+    }
+    if (!selectedTable) {
+      setOrderError("Scan a table QR code or select an active table before ordering.");
+      return;
+    }
+    const unavailableItem = cart.find((entry) => {
+      const currentItem = menuItems.find((item) => item.id === entry.menuItem.id) ?? entry.menuItem;
+      return !currentItem.available || currentItem.category?.active === false;
+    });
+    if (unavailableItem) {
+      setOrderError(`${unavailableItem.menuItem.name} is unavailable. Remove it before checkout.`);
+      return;
     }
 
-    const newId = `ORD-${Math.floor(1000 + Math.random() * 9000)}`;
-    const newOrderRecord = {
-      id: newId,
-      type: orderMode,
-      table: orderMode === "dine_in" ? tableNumber : null,
-      address:
-        orderMode === "delivery"
-          ? `${deliveryDetails.address}, Pincode: ${deliveryDetails.pincode}`
-          : null,
-      customer: deliveryDetails.name || "Guest User",
-      phone: deliveryDetails.phone || "N/A",
-      time: "Just now",
-      status: "pending",
-      items: cart.map((i) => ({
-        name: i.name,
-        qty: i.quantity,
-        addons: i.addons.map((a) => a.name),
-      })),
-      total: grandTotal,
-      paymentMethod:
-        selectedPayment === "counter"
-          ? orderMode === "dine_in"
-            ? "Pay at Counter / Waiter"
-            : "Cash on Delivery"
-          : "Instant Card / UPI",
-      paymentStatus: selectedPayment === "counter" ? "Unpaid" : "Paid Online",
-    };
-
-    // Push into real-time orders list for kitchen
-    setOrders((prev) => [newOrderRecord, ...prev]);
-    setLastPlacedOrderId(newId);
-    setCart([]);
-    setIsCartOpen(false);
-    setIsOrderPlacedSuccess(true);
-    showNotification(
-      `Order ${newId} confirmed and sent to kitchen!`,
-      "success",
-    );
+    setIsPlacingOrder(true);
+    setOrderError(null);
+    const items: OrderItemRequest[] = cart.map(({ menuItem, quantity }) => ({
+      menuItemId: menuItem.id,
+      quantity,
+    }));
+    const fingerprint = JSON.stringify({ tableId: selectedTable.id, items });
+    if (idempotencyKey.current?.fingerprint !== fingerprint) {
+      idempotencyKey.current = { fingerprint, key: crypto.randomUUID() };
+    }
+    try {
+      const order = await apiService.createOrder({
+        qrToken: selectedTable.qrToken,
+        idempotencyKey: idempotencyKey.current.key,
+        restaurantId: selectedTable.restaurant.id,
+        tableId: selectedTable.id,
+        items,
+      });
+      idempotencyKey.current = null;
+      setLastPlacedOrderId(String(order.id));
+      setCart([]);
+      setIsCartOpen(false);
+      setIsOrderPlacedSuccess(true);
+      void loadKdsOrders(order.restaurantId);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to place order.";
+      setOrderError(message);
+      void apiService.getMenu().then(setMenuItems).catch((refreshError: unknown) => {
+        setMenuError(refreshError instanceof Error ? refreshError.message : "Unable to load menu.");
+      });
+    } finally {
+      setIsPlacingOrder(false);
+    }
   };
 
-  /* Handler for manager updating order status */
-  const handleUpdateOrderStatus = (orderId: string, newStatus: string) => {
-    setOrders((prev) =>
-      prev.map((order) => {
-        if (order.id === orderId) {
-          return { ...order, status: newStatus };
-        }
-        return order;
-      }),
-    );
-    showNotification(
-      `Order ${orderId} updated to ${newStatus.toUpperCase()}`,
-      "info",
-    );
+  const handleUpdateOrderStatus = async (orderId: number, newStatus: string) => {
+    try {
+      const updatedOrder = await apiService.updateOrderStatus(orderId, newStatus);
+      setOrders((current) => current.map((order) =>
+        order.backendId === updatedOrder.id ? toKdsOrder(updatedOrder) : order,
+      ));
+      setKdsError(null);
+      showNotification(`Order ${orderId} updated to ${newStatus.toUpperCase()}`, "success");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Could not update order status";
+      setKdsError(message);
+      showNotification(message, "error");
+    }
   };
 
-  const renderDietBadge = (diet: string) => {
+  const renderDietBadge = (diet?: string | null) => {
     if (diet === "veg") {
       return (
         <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-300 px-2 py-0.5 rounded-full">
@@ -541,9 +341,14 @@ export default function App() {
         </span>
       );
     }
-    return (
+    if (diet === "non-veg") return (
       <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-rose-700 bg-rose-50 border border-rose-200 px-2 py-0.5 rounded-full">
         <Flame className="w-3 h-3 text-rose-500" /> Non-Veg
+      </span>
+    );
+    return (
+      <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-stone-600 bg-white/90 border border-stone-200 px-2 py-0.5 rounded-full">
+        Diet not specified
       </span>
     );
   };
@@ -562,22 +367,27 @@ export default function App() {
               <div>
                 <div className="flex items-center gap-2">
                   <h1 className="text-lg font-bold tracking-tight text-stone-900">
-                    Maison & Ember
+                    {restaurant?.name ?? (menuLoading ? "Loading restaurant…" : "Restaurant")}
                   </h1>
                   <span className="text-[10px] uppercase font-bold tracking-widest px-2 py-0.5 rounded bg-amber-100 text-amber-800">
                     Live
                   </span>
                 </div>
-                <p className="text-xs text-stone-500 hidden sm:block">
-                  Woodfire Kitchen & Artisan Pantry
-                </p>
+                {restaurant?.address && (
+                  <p className="text-xs text-stone-500 hidden sm:block">{restaurant.address}</p>
+                )}
               </div>
             </div>
 
             {/* View Switcher (Customer vs Kitchen/Manager) */}
             <div className="flex items-center bg-stone-100 p-1 rounded-xl border border-stone-200 text-xs font-medium">
               <button
-                onClick={() => setActiveView("customer")}
+                onClick={() => {
+                  setActiveView("customer");
+                  if (window.location.hash) {
+                    window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}`);
+                  }
+                }}
                 className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${
                   activeView === "customer"
                     ? "bg-white text-stone-900 shadow-sm font-semibold"
@@ -588,7 +398,10 @@ export default function App() {
                 Customer Menu
               </button>
               <button
-                onClick={() => setActiveView("kitchen")}
+                onClick={() => {
+                  setActiveView("kitchen");
+                  window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}#kds`);
+                }}
                 className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 relative ${
                   activeView === "kitchen"
                     ? "bg-stone-900 text-white shadow-sm font-semibold"
@@ -597,9 +410,6 @@ export default function App() {
               >
                 <ChefHat className="w-3.5 h-3.5" />
                 Kitchen Display
-                {orders.filter((o) => o.status === "pending").length > 0 && (
-                  <span className="w-2 h-2 rounded-full bg-rose-500 absolute -top-0.5 -right-0.5 animate-pulse" />
-                )}
               </button>
             </div>
 
@@ -664,35 +474,27 @@ export default function App() {
                   Simulate QR Table Scan:
                 </span>
                 <span className="ml-2 text-amber-200">
-                  Test how customers experience instant table detection
+                  Select an active table from the restaurant database
                 </span>
               </div>
             </div>
             <div className="flex items-center gap-2 flex-wrap">
-              {[
-                "Table 1",
-                "Table 2",
-                "Table 4",
-                "Table 7 (Patio)",
-                "Bar Counter 2",
-              ].map((tbl) => (
+              {tables.map((table) => (
                 <button
-                  key={tbl}
+                  key={table.id}
                   onClick={() => {
                     setOrderMode("dine_in");
-                    setTableNumber(tbl);
-                    showNotification(
-                      `Scanned QR! Switched to Dine-In: ${tbl}`,
-                      "success",
-                    );
+                    setSelectedTable(table);
+                    setKdsRestaurantId(table.restaurant.id);
+                    showNotification(`Selected table ${table.tableNumber}`, "success");
                   }}
                   className={`px-2.5 py-1 rounded border text-xs transition ${
-                    tableNumber === tbl && orderMode === "dine_in"
+                    selectedTable?.id === table.id && orderMode === "dine_in"
                       ? "bg-amber-400 text-stone-900 font-bold border-amber-300"
                       : "bg-amber-800/60 hover:bg-amber-700 text-amber-200 border-amber-700"
                   }`}
                 >
-                  {tbl}
+                  Table {table.tableNumber}
                 </button>
               ))}
               <button
@@ -720,8 +522,7 @@ export default function App() {
                   Fresh Flavors, Zero Waiting
                 </h2>
                 <p className="text-stone-500 text-xs sm:text-sm mt-1">
-                  Dine-in with table QR order, or enjoy rapid delivery in your
-                  local neighborhood.
+                  Browse the live menu and order for an active restaurant table.
                 </p>
               </div>
 
@@ -779,7 +580,7 @@ export default function App() {
                         {tableNumber}
                       </span>
                       <span className="text-stone-500 text-[11px] block sm:inline sm:ml-2">
-                        Orders print directly to kitchen line
+                        Order status is shared with the kitchen display
                       </span>
                     </div>
                   </div>
@@ -788,78 +589,29 @@ export default function App() {
                       Change Table:
                     </label>
                     <select
-                      value={tableNumber}
-                      onChange={(e) => setTableNumber(e.target.value)}
+                      value={selectedTable?.id ?? ""}
+                      onChange={(e) => {
+                        const table = tables.find((candidate) => candidate.id === Number(e.target.value));
+                        if (table) {
+                          selectTable(table);
+                        }
+                      }}
                       className="bg-white border border-stone-300 text-stone-900 rounded-md px-2 py-1 text-xs focus:ring-1 focus:ring-amber-500 font-medium"
                     >
-                      <option value="Table 1">Table 1 (Indoor)</option>
-                      <option value="Table 2">Table 2 (Window)</option>
-                      <option value="Table 4">Table 4 (Booth)</option>
-                      <option value="Table 7 (Patio)">Table 7 (Patio)</option>
-                      <option value="Bar Counter 2">Bar Counter 2</option>
+                      {!selectedTable && <option value="">Select a table</option>}
+                      {tables
+                        .filter((table) => !selectedTable || table.restaurant.id === selectedTable.restaurant.id)
+                        .map((table) => (
+                          <option key={table.id} value={table.id}>Table {table.tableNumber}</option>
+                        ))}
                     </select>
                   </div>
                 </div>
               )}
 
               {orderMode === "delivery" && (
-                <div className="bg-stone-50 border border-stone-200 p-3 rounded-xl space-y-2">
-                  <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
-                    <div className="flex items-center gap-2">
-                      <MapPin className="w-4 h-4 text-emerald-600" />
-                      <span className="font-semibold text-stone-800">
-                        Delivery to Pincode / Postal Code:
-                      </span>
-                      <input
-                        type="text"
-                        value={deliveryDetails.pincode}
-                        onChange={(e) =>
-                          setDeliveryDetails({
-                            ...deliveryDetails,
-                            pincode: e.target.value,
-                          })
-                        }
-                        className="bg-white border border-stone-300 rounded px-2 py-0.5 text-xs font-mono font-bold w-24 text-center focus:outline-amber-500"
-                        placeholder="e.g. 10001"
-                      />
-                      {isPincodeEligible ? (
-                        <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 bg-emerald-100/70 px-2 py-0.5 rounded-full">
-                          <CheckCircle2 className="w-3 h-3" /> Serviceable Area
-                          (30-45m)
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-rose-700 bg-rose-100 px-2 py-0.5 rounded-full">
-                          <AlertCircle className="w-3 h-3" /> Outside Local
-                          Radius
-                        </span>
-                      )}
-                    </div>
-                    <div className="text-[11px] text-stone-500">
-                      Minimum order:{" "}
-                      <strong className="text-stone-800">
-                        ${DELIVERY_CONFIG.minOrder.toFixed(2)}
-                      </strong>{" "}
-                      | Free over $
-                      {DELIVERY_CONFIG.freeDeliveryThreshold.toFixed(2)}
-                    </div>
-                  </div>
-                  {!isPincodeEligible && (
-                    <p className="text-[11px] text-rose-600">
-                      Try testing one of our serviced area pincodes:{" "}
-                      <code className="font-bold bg-rose-50 px-1 py-0.5 rounded">
-                        10001
-                      </code>
-                      ,{" "}
-                      <code className="font-bold bg-rose-50 px-1 py-0.5 rounded">
-                        10002
-                      </code>
-                      , or{" "}
-                      <code className="font-bold bg-rose-50 px-1 py-0.5 rounded">
-                        560001
-                      </code>
-                      .
-                    </p>
-                  )}
+                <div className="bg-stone-50 border border-stone-200 p-3 rounded-xl text-xs text-stone-600">
+                  Delivery checkout is not supported by the current order API.
                 </div>
               )}
 
@@ -868,13 +620,9 @@ export default function App() {
                   <div className="flex items-center gap-2">
                     <Clock className="w-4 h-4 text-amber-600" />
                     <span>
-                      Estimated pickup ready time:{" "}
-                      <strong>15 - 20 minutes</strong> from order confirmation.
+                      Pickup checkout is not supported by the current order API.
                     </span>
                   </div>
-                  <span className="text-[11px] font-medium text-stone-500">
-                    Pickup Counter at Front Deck
-                  </span>
                 </div>
               )}
             </div>
@@ -928,7 +676,9 @@ export default function App() {
 
             {/* Category Navigation Pills */}
             <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-none">
-              {MENU_CATEGORIES.map((cat) => (
+              {[{ id: "all", name: "All Items" }, ...categories
+                .filter((category) => category.active !== false)
+                .map((category) => ({ id: String(category.id), name: category.name }))].map((cat) => (
                 <button
                   key={cat.id}
                   onClick={() => setSelectedCategory(cat.id)}
@@ -945,15 +695,34 @@ export default function App() {
           </div>
 
           {}
-          {filteredMenuItems.length === 0 ? (
+          {menuError ? (
+            <div role="alert" className="text-center py-16 bg-white rounded-2xl border border-rose-200 p-8">
+              <AlertCircle className="w-10 h-10 text-rose-400 mx-auto mb-3" />
+              <h3 className="text-base font-semibold text-stone-800">Unable to load menu.</h3>
+              <p className="text-xs text-stone-500 mt-1">{menuError}</p>
+              <button
+                onClick={() => void loadCustomerMenu()}
+                className="mt-4 px-4 py-2 bg-stone-900 hover:bg-stone-700 text-white rounded-lg text-xs font-semibold transition"
+              >
+                Retry
+              </button>
+            </div>
+          ) : menuLoading ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5" aria-label="Loading menu">
+              {[1, 2, 3].map((index) => (
+                <div key={index} className="h-80 animate-pulse rounded-2xl bg-white border border-stone-200" />
+              ))}
+            </div>
+          ) : filteredMenuItems.length === 0 ? (
             <div className="text-center py-16 bg-white rounded-2xl border border-stone-200 p-8">
               <Utensils className="w-10 h-10 text-stone-300 mx-auto mb-3" />
               <h3 className="text-base font-semibold text-stone-800">
-                No delicious items match your search
+                {menuItems.length === 0 ? "No menu items available." : "No items match your filters."}
               </h3>
               <p className="text-xs text-stone-500 mt-1 max-w-sm mx-auto">
-                Try resetting your filters or search query to explore our
-                complete culinary offerings.
+                {menuItems.length === 0
+                  ? "Please check back later."
+                  : "Try resetting your filters or search query."}
               </p>
               <button
                 onClick={() => {
@@ -969,8 +738,9 @@ export default function App() {
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
               {filteredMenuItems.map((item) => {
+                const isAvailable = item.available && item.category?.active !== false;
                 const countInCart = cart
-                  .filter((c) => c.id === item.id)
+                  .filter((entry) => entry.menuItem.id === item.id)
                   .reduce((sum, c) => sum + c.quantity, 0);
 
                 return (
@@ -981,19 +751,32 @@ export default function App() {
                     <div>
                       {/* Image Thumbnail with badges */}
                       <div className="relative h-48 w-full overflow-hidden bg-stone-100">
-                        <img
-                          src={item.image}
-                          alt={item.name}
-                          className="w-full h-full object-cover group-hover:scale-105 transition duration-500"
-                          loading="lazy"
-                        />
+                        {item.imageUrl ? (
+                          <img
+                            src={item.imageUrl}
+                            alt={item.name}
+                            className="w-full h-full object-cover group-hover:scale-105 transition duration-500"
+                            loading="lazy"
+                          />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center text-stone-300">
+                            <Utensils className="w-12 h-12" />
+                          </div>
+                        )}
                         <div className="absolute top-3 left-3">
-                          {renderDietBadge(item.diet)}
+                          {renderDietBadge(item.dietaryType)}
                         </div>
+                        {item.preparationTimeMinutes != null && (
                         <div className="absolute top-3 right-3 bg-stone-900/80 backdrop-blur-sm text-white text-[11px] font-semibold px-2 py-0.5 rounded-full flex items-center gap-1">
                           <Clock className="w-3 h-3 text-amber-400" />
-                          {item.prepTime}
+                          {item.preparationTimeMinutes} mins
                         </div>
+                        )}
+                        {!isAvailable && (
+                          <span className="absolute bottom-3 left-3 bg-rose-700/90 text-white text-[11px] font-bold px-2 py-1 rounded-full">
+                            Unavailable
+                          </span>
+                        )}
                       </div>
 
                       {/* Content details */}
@@ -1003,18 +786,12 @@ export default function App() {
                             {item.name}
                           </h3>
                           <span className="text-base font-extrabold text-stone-900">
-                            ${item.price.toFixed(2)}
+                            ₹{item.price.toFixed(2)}
                           </span>
                         </div>
                         <p className="text-xs text-stone-500 line-clamp-2 leading-relaxed">
-                          {item.description}
+                          {item.description || "No description provided."}
                         </p>
-                        {item.customizations.length > 0 && (
-                          <div className="text-[11px] text-amber-800 font-medium flex items-center gap-1">
-                            <Sparkles className="w-3 h-3 text-amber-500" />
-                            Add-ons & spice levels customizable
-                          </div>
-                        )}
                       </div>
                     </div>
 
@@ -1022,18 +799,19 @@ export default function App() {
                     <div className="p-4 pt-0">
                       <div className="flex items-center justify-between pt-3 border-t border-stone-100">
                         <span className="text-xs text-stone-400">
-                          ★ {item.rating} Rating
+                          {item.category?.name ?? "Menu item"}
                         </span>
                         <button
                           onClick={() => handleOpenCustomization(item)}
-                          className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 ${
+                          disabled={!isAvailable}
+                          className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 disabled:cursor-not-allowed disabled:bg-stone-200 disabled:text-stone-500 ${
                             countInCart > 0
                               ? "bg-amber-100 text-amber-900 hover:bg-amber-200"
                               : "bg-stone-900 hover:bg-stone-800 text-white shadow-sm"
                           }`}
                         >
                           <Plus className="w-3.5 h-3.5" />
-                          {countInCart > 0
+                          {!isAvailable ? "Unavailable" : countInCart > 0
                             ? `Add Another (${countInCart})`
                             : "Add to Tray"}
                         </button>
@@ -1046,7 +824,7 @@ export default function App() {
           )}
         </main>
       ) : (
-        <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+        <main id="kds" className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-stone-900 text-white p-5 rounded-2xl shadow-lg">
             <div>
               <div className="flex items-center gap-2">
@@ -1056,22 +834,31 @@ export default function App() {
                 </h2>
               </div>
               <p className="text-xs text-stone-400 mt-1">
-                Live order queue for Table QR scans and neighborhood delivery
-                orders.
+                Live order queue for orders placed from active table QR codes.
               </p>
             </div>
             <div className="flex items-center gap-3">
+              <label htmlFor="kds-restaurant" className="text-xs text-stone-300">Restaurant</label>
+              <select
+                id="kds-restaurant"
+                value={kdsRestaurantId ?? ""}
+                onChange={(event) => setKdsRestaurantId(Number(event.target.value))}
+                disabled={restaurants.length === 0}
+                className="max-w-40 rounded-lg bg-stone-800 px-2 py-1.5 text-xs text-white"
+              >
+                {restaurants.map((restaurant) => (
+                  <option key={restaurant.id} value={restaurant.id}>{restaurant.name}</option>
+                ))}
+              </select>
               <button
-                onClick={() =>
-                  showNotification("Ticket queue refreshed", "info")
-                }
+                onClick={() => kdsRestaurantId !== null && void loadKdsOrders(kdsRestaurantId)}
                 className="px-3 py-1.5 bg-stone-800 hover:bg-stone-700 text-xs font-semibold rounded-lg transition flex items-center gap-1.5"
               >
                 <RefreshCw className="w-3.5 h-3.5" /> Refresh Tickets
               </button>
               <div className="text-right">
                 <span className="text-xs font-mono text-amber-400 font-bold block">
-                  {orders.length} ACTIVE ORDERS
+                  {orders.filter((order) => !["completed", "cancelled"].includes(order.status)).length} ACTIVE ORDERS
                 </span>
                 <span className="text-[10px] text-stone-400">
                   Autosync active
@@ -1080,14 +867,26 @@ export default function App() {
             </div>
           </div>
 
+          {kdsError && (
+            <div role="alert" className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">
+              {kdsError}
+            </div>
+          )}
+
+          {kdsLoading && orders.length === 0 && (
+            <p className="rounded-xl bg-white p-8 text-center text-stone-600">Loading kitchen orders…</p>
+          )}
+
           {/* Orders Column Layout / Board */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {orders.map((order) => {
               const statusColors: Record<string, string> = {
                 pending: "bg-amber-100 text-amber-800 border-amber-300",
+                confirmed: "bg-orange-100 text-orange-800 border-orange-300",
                 preparing: "bg-blue-100 text-blue-800 border-blue-300",
                 ready: "bg-emerald-100 text-emerald-800 border-emerald-300",
                 completed: "bg-stone-100 text-stone-700 border-stone-300",
+                cancelled: "bg-red-100 text-red-700 border-red-300",
               };
 
               return (
@@ -1128,9 +927,7 @@ export default function App() {
 
                     {/* Customer & Location Info */}
                     <div className="bg-stone-50 p-2.5 rounded-xl text-xs space-y-1 text-stone-700">
-                      <div className="font-semibold text-stone-900">
-                        {order.customer}
-                      </div>
+                      <div className="font-semibold text-stone-900">{order.customer}</div>
                       {order.phone && (
                         <div className="flex items-center gap-1 text-[11px] text-stone-500">
                           <Phone className="w-3 h-3" /> {order.phone}
@@ -1143,11 +940,7 @@ export default function App() {
                         </div>
                       )}
                       <div className="text-[11px] font-medium text-stone-500 pt-0.5">
-                        Payment:{" "}
-                        <span className="font-bold text-stone-800">
-                          {order.paymentMethod}
-                        </span>{" "}
-                        ({order.paymentStatus})
+                        Payment status: <span className="font-bold text-stone-800">{order.paymentStatus}</span>
                       </div>
                     </div>
 
@@ -1182,24 +975,32 @@ export default function App() {
                   {/* Footer & Status Progression Buttons */}
                   <div className="pt-4 mt-3 border-t border-stone-100 flex items-center justify-between gap-2">
                     <div className="text-sm font-extrabold text-stone-900">
-                      ${order.total.toFixed(2)}
+                      ₹{order.total.toFixed(2)}
                     </div>
 
                     <div className="flex items-center gap-1">
                       {order.status === "pending" && (
                         <button
                           onClick={() =>
-                            handleUpdateOrderStatus(order.id, "preparing")
+                          handleUpdateOrderStatus(order.backendId, "confirmed")
                           }
                           className="px-2.5 py-1 bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold rounded-lg transition"
                         >
-                          Start Prep →
+                        Confirm →
+                        </button>
+                      )}
+                      {order.status === "confirmed" && (
+                        <button
+                        onClick={() => handleUpdateOrderStatus(order.backendId, "preparing")}
+                        className="px-2.5 py-1 bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold rounded-lg transition"
+                        >
+                        Start Prep →
                         </button>
                       )}
                       {order.status === "preparing" && (
                         <button
-                          onClick={() =>
-                            handleUpdateOrderStatus(order.id, "ready")
+                        onClick={() =>
+                          handleUpdateOrderStatus(order.backendId, "ready")
                           }
                           className="px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-lg transition"
                         >
@@ -1211,7 +1012,7 @@ export default function App() {
                       {order.status === "ready" && (
                         <button
                           onClick={() =>
-                            handleUpdateOrderStatus(order.id, "completed")
+                            handleUpdateOrderStatus(order.backendId, "completed")
                           }
                           className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-lg transition"
                         >
@@ -1223,12 +1024,18 @@ export default function App() {
                           <CheckCircle2 className="w-3.5 h-3.5" /> Fulfilled
                         </span>
                       )}
+                      {order.status === "cancelled" && (
+                        <span className="text-[11px] font-bold text-red-600">Cancelled</span>
+                      )}
                     </div>
                   </div>
                 </div>
               );
             })}
           </div>
+          {!kdsLoading && orders.length === 0 && !kdsError && (
+            <p className="rounded-xl bg-white p-8 text-center text-stone-600">No restaurant orders yet.</p>
+          )}
         </main>
       )}
 
@@ -1237,11 +1044,13 @@ export default function App() {
         <div className="fixed inset-0 z-50 bg-stone-900/60 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white w-full max-w-lg rounded-2xl shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200 flex flex-col max-h-[90vh]">
             <div className="relative h-44 w-full bg-stone-100">
-              <img
-                src={customizingItem.image}
-                alt={customizingItem.name}
-                className="w-full h-full object-cover"
-              />
+              {customizingItem.imageUrl ? (
+                <img src={customizingItem.imageUrl} alt={customizingItem.name} className="w-full h-full object-cover" />
+              ) : (
+                <div className="w-full h-full flex items-center justify-center text-stone-300">
+                  <Utensils className="w-12 h-12" />
+                </div>
+              )}
               <button
                 onClick={() => setCustomizingItem(null)}
                 className="absolute top-3 right-3 p-1.5 rounded-full bg-stone-900/70 text-white hover:bg-stone-900 transition"
@@ -1257,88 +1066,13 @@ export default function App() {
                     {customizingItem.name}
                   </h3>
                   <span className="text-lg font-extrabold text-amber-700">
-                    ${customizingItem.price.toFixed(2)}
+                    ₹{customizingItem.price.toFixed(2)}
                   </span>
                 </div>
                 <p className="text-xs text-stone-500 mt-1">
-                  {customizingItem.description}
+                  {customizingItem.description || "No description provided."}
                 </p>
               </div>
-
-              {/* Spice level options if applicable */}
-              {customizingItem.spiceLevels.length > 0 && (
-                <div className="space-y-2 pt-2 border-t border-stone-100">
-                  <label className="text-xs font-bold text-stone-800 uppercase tracking-wider block">
-                    Choose Spice Level:
-                  </label>
-                  <div className="flex gap-2 flex-wrap">
-                    {customizingItem.spiceLevels.map((lvl) => (
-                      <button
-                        key={lvl}
-                        onClick={() => setSelectedSpice(lvl)}
-                        className={`px-3 py-1.5 text-xs font-semibold rounded-lg border transition ${
-                          selectedSpice === lvl
-                            ? "bg-amber-600 text-white border-amber-600"
-                            : "bg-stone-50 text-stone-700 border-stone-200 hover:bg-stone-100"
-                        }`}
-                      >
-                        {lvl}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Custom Addons */}
-              {customizingItem.customizations.length > 0 && (
-                <div className="space-y-2 pt-2 border-t border-stone-100">
-                  <label className="text-xs font-bold text-stone-800 uppercase tracking-wider block">
-                    Chef Customizations & Extras:
-                  </label>
-                  <div className="space-y-2">
-                    {customizingItem.customizations.map((addon) => {
-                      const isChecked = selectedAddons.some(
-                        (a) => a.name === addon.name,
-                      );
-                      return (
-                        <label
-                          key={addon.name}
-                          className={`flex items-center justify-between p-2.5 rounded-xl border text-xs cursor-pointer transition ${
-                            isChecked
-                              ? "bg-amber-50/70 border-amber-300"
-                              : "bg-stone-50 border-stone-200"
-                          }`}
-                        >
-                          <div className="flex items-center gap-2">
-                            <input
-                              type="checkbox"
-                              checked={isChecked}
-                              onChange={(e) => {
-                                if (e.target.checked) {
-                                  setSelectedAddons([...selectedAddons, addon]);
-                                } else {
-                                  setSelectedAddons(
-                                    selectedAddons.filter(
-                                      (a) => a.name !== addon.name,
-                                    ),
-                                  );
-                                }
-                              }}
-                              className="rounded text-amber-600 focus:ring-amber-500"
-                            />
-                            <span className="font-medium text-stone-800">
-                              {addon.name}
-                            </span>
-                          </div>
-                          <span className="font-bold text-stone-900">
-                            +${addon.price.toFixed(2)}
-                          </span>
-                        </label>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
             </div>
 
             {/* Modal CTA Button */}
@@ -1348,16 +1082,13 @@ export default function App() {
                   Item Total:
                 </span>
                 <span className="text-base font-extrabold text-stone-900">
-                  $
-                  {(
-                    customizingItem.price +
-                    selectedAddons.reduce((sum, a) => sum + a.price, 0)
-                  ).toFixed(2)}
+                  ₹{customizingItem.price.toFixed(2)}
                 </span>
               </div>
               <button
                 onClick={handleAddToCartWithCustomization}
-                className="px-5 py-2.5 bg-amber-600 hover:bg-amber-700 active:scale-95 text-white text-xs font-bold rounded-xl shadow-md transition"
+                disabled={!customizingItem.available || customizingItem.category?.active === false}
+                className="px-5 py-2.5 bg-amber-600 hover:bg-amber-700 active:scale-95 text-white text-xs font-bold rounded-xl shadow-md transition disabled:cursor-not-allowed disabled:bg-stone-300 disabled:shadow-none"
               >
                 Confirm & Add to Tray
               </button>
@@ -1426,12 +1157,7 @@ export default function App() {
                   </div>
                 ) : (
                   cart.map((item) => {
-                    const addonSum = item.addons.reduce(
-                      (acc, a) => acc + a.price,
-                      0,
-                    );
-                    const itemUnitTotal = item.price + addonSum;
-
+                    const menuItem = menuItems.find((entry) => entry.id === item.menuItem.id) ?? item.menuItem;
                     return (
                       <div
                         key={item.cartId}
@@ -1440,29 +1166,18 @@ export default function App() {
                         <div className="flex items-start justify-between">
                           <div>
                             <h4 className="text-sm font-bold text-stone-900">
-                              {item.name}
+                              {menuItem.name}
                             </h4>
-                            {item.selectedSpice && (
-                              <span className="text-[11px] text-amber-700 font-medium block">
-                                Spice: {item.selectedSpice}
-                              </span>
-                            )}
-                            {item.addons.length > 0 && (
-                              <p className="text-[11px] text-stone-500">
-                                Extras:{" "}
-                                {item.addons.map((a) => a.name).join(", ")}
-                              </p>
-                            )}
                           </div>
                           <span className="font-extrabold text-xs text-stone-900">
-                            ${(itemUnitTotal * item.quantity).toFixed(2)}
+                            ₹{(menuItem.price * item.quantity).toFixed(2)}
                           </span>
                         </div>
 
                         {/* Quantity Incrementer */}
                         <div className="flex items-center justify-between pt-2 border-t border-stone-200/60">
                           <span className="text-[11px] text-stone-400">
-                            ${itemUnitTotal.toFixed(2)} each
+                            ₹{menuItem.price.toFixed(2)} each
                           </span>
                           <div className="flex items-center gap-2">
                             <button
@@ -1491,103 +1206,10 @@ export default function App() {
                   })
                 )}
 
-                {/* Delivery Form (If in Delivery Mode) */}
-                {orderMode === "delivery" && cart.length > 0 && (
-                  <div className="mt-4 p-3 bg-stone-100/70 rounded-xl border border-stone-200 space-y-2.5">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-bold text-stone-800 flex items-center gap-1.5">
-                        <MapPin className="w-3.5 h-3.5 text-emerald-600" />{" "}
-                        Delivery Address Details
-                      </span>
-                    </div>
-                    <div className="space-y-2 text-xs">
-                      <input
-                        type="text"
-                        placeholder="Recipient Full Name"
-                        value={deliveryDetails.name}
-                        onChange={(e) =>
-                          setDeliveryDetails({
-                            ...deliveryDetails,
-                            name: e.target.value,
-                          })
-                        }
-                        className="w-full bg-white border border-stone-300 rounded-lg p-2 text-xs focus:ring-1 focus:ring-amber-500"
-                      />
-                      <input
-                        type="text"
-                        placeholder="Contact Phone Number"
-                        value={deliveryDetails.phone}
-                        onChange={(e) =>
-                          setDeliveryDetails({
-                            ...deliveryDetails,
-                            phone: e.target.value,
-                          })
-                        }
-                        className="w-full bg-white border border-stone-300 rounded-lg p-2 text-xs focus:ring-1 focus:ring-amber-500"
-                      />
-                      <input
-                        type="text"
-                        placeholder="Street address, building, apartment"
-                        value={deliveryDetails.address}
-                        onChange={(e) =>
-                          setDeliveryDetails({
-                            ...deliveryDetails,
-                            address: e.target.value,
-                          })
-                        }
-                        className="w-full bg-white border border-stone-300 rounded-lg p-2 text-xs focus:ring-1 focus:ring-amber-500"
-                      />
-                      <input
-                        type="text"
-                        placeholder="Delivery notes or gate entry codes"
-                        value={deliveryDetails.instructions}
-                        onChange={(e) =>
-                          setDeliveryDetails({
-                            ...deliveryDetails,
-                            instructions: e.target.value,
-                          })
-                        }
-                        className="w-full bg-white border border-stone-300 rounded-lg p-2 text-xs focus:ring-1 focus:ring-amber-500"
-                      />
-                    </div>
-                  </div>
-                )}
-
-                {/* Payment Option Selector */}
-                {cart.length > 0 && (
-                  <div className="mt-3 space-y-2">
-                    <span className="text-xs font-bold text-stone-700 block">
-                      Select Payment Method:
-                    </span>
-                    <div className="grid grid-cols-2 gap-2 text-xs">
-                      <button
-                        onClick={() => setSelectedPayment("counter")}
-                        className={`p-2.5 rounded-xl border flex flex-col items-center gap-1 transition ${
-                          selectedPayment === "counter"
-                            ? "bg-amber-50 border-amber-500 text-amber-900 font-bold"
-                            : "bg-stone-50 border-stone-200 text-stone-600"
-                        }`}
-                      >
-                        <DollarSign className="w-4 h-4" />
-                        <span>
-                          {orderMode === "dine_in"
-                            ? "Pay at Counter"
-                            : "Cash / COD"}
-                        </span>
-                      </button>
-                      <button
-                        onClick={() => setSelectedPayment("online")}
-                        className={`p-2.5 rounded-xl border flex flex-col items-center gap-1 transition ${
-                          selectedPayment === "online"
-                            ? "bg-amber-50 border-amber-500 text-amber-900 font-bold"
-                            : "bg-stone-50 border-stone-200 text-stone-600"
-                        }`}
-                      >
-                        <CreditCard className="w-4 h-4" />
-                        <span>Instant Card / UPI</span>
-                      </button>
-                    </div>
-                  </div>
+                {orderMode === "dine_in" && cart.length > 0 && (
+                  <p className="rounded-xl border border-stone-200 bg-stone-50 p-3 text-xs text-stone-600">
+                    Payment status starts as unpaid
+                  </p>
                 )}
               </div>
 
@@ -1598,50 +1220,34 @@ export default function App() {
                     <div className="flex justify-between">
                       <span>Items Subtotal</span>
                       <span className="font-semibold text-stone-900">
-                        ${cartSubtotal.toFixed(2)}
-                      </span>
-                    </div>
-                    {orderMode === "delivery" && (
-                      <div className="flex justify-between">
-                        <span>Delivery Fee</span>
-                        <span className="font-semibold text-stone-900">
-                          {deliveryFee === 0 ? (
-                            <span className="text-emerald-600 font-bold">
-                              FREE
-                            </span>
-                          ) : (
-                            `$${deliveryFee.toFixed(2)}`
-                          )}
-                        </span>
-                      </div>
-                    )}
-                    <div className="flex justify-between">
-                      <span>Taxes (8%)</span>
-                      <span className="font-semibold text-stone-900">
-                        ${tax.toFixed(2)}
+                        ₹{cartSubtotal.toFixed(2)}
                       </span>
                     </div>
                     <div className="flex justify-between text-sm font-extrabold text-stone-950 pt-2 border-t border-stone-200">
                       <span>Total Due</span>
                       <span className="text-amber-700">
-                        ${grandTotal.toFixed(2)}
+                        ₹{grandTotal.toFixed(2)}
                       </span>
                     </div>
                   </div>
 
                   <button
                     onClick={handlePlaceOrder}
+                    disabled={isPlacingOrder || !selectedTable || orderMode !== "dine_in"}
                     className="w-full py-3 bg-amber-600 hover:bg-amber-700 active:scale-[0.99] text-white font-bold text-sm rounded-xl shadow-lg shadow-amber-600/30 transition flex items-center justify-center gap-2"
                   >
                     <span>
                       {orderMode === "dine_in"
                         ? `Send Order to Kitchen (${tableNumber})`
                         : orderMode === "delivery"
-                          ? "Place Delivery Order"
-                          : "Confirm Takeaway Order"}
+                          ? "Delivery unavailable"
+                          : "Pickup unavailable"}
                     </span>
                     <ArrowRight className="w-4 h-4" />
                   </button>
+                  {orderError && (
+                    <p role="alert" className="text-xs text-rose-700">{orderError}</p>
+                  )}
                 </div>
               )}
             </div>
@@ -1658,42 +1264,37 @@ export default function App() {
             </div>
             <div>
               <span className="text-xs font-bold text-amber-700 uppercase tracking-widest">
-                Order Confirmed!
+                Order Placed!
               </span>
               <h3 className="text-xl font-black text-stone-900 mt-1">
                 Ticket #{lastPlacedOrderId}
               </h3>
               <p className="text-xs text-stone-500 mt-2 leading-relaxed">
-                {orderMode === "dine_in"
-                  ? `Your ticket was sent to the kitchen station for ${tableNumber}. Your chef is on it!`
-                  : `Your local delivery order is being prepared and will arrive within 30-45 minutes.`}
+                Your order was saved and sent to the kitchen. You can track its status from the order page.
               </p>
             </div>
 
             <div className="p-3 bg-stone-50 rounded-xl border border-stone-200 text-xs text-stone-600 text-left space-y-1">
               <div className="flex justify-between">
-                <span>Estimated Time:</span>
+                <span>Table:</span>
                 <strong className="text-stone-900">
-                  {orderMode === "dine_in" ? "12 - 18 Mins" : "30 - 45 Mins"}
+                  {selectedTable?.tableNumber}
                 </strong>
               </div>
               <div className="flex justify-between">
-                <span>Service Mode:</span>
+                <span>Order status:</span>
                 <strong className="text-stone-900 capitalize">
-                  {orderMode.replace("_", " ")}
+                  Pending
                 </strong>
               </div>
             </div>
 
             <div className="flex gap-2">
               <button
-                onClick={() => {
-                  setIsOrderPlacedSuccess(false);
-                  setActiveView("kitchen");
-                }}
+                onClick={() => router.push(`/order/${lastPlacedOrderId}`)}
                 className="flex-1 py-2.5 bg-stone-900 hover:bg-stone-800 text-white rounded-xl text-xs font-bold transition"
               >
-                View in KDS
+                Track Order
               </button>
               <button
                 onClick={() => setIsOrderPlacedSuccess(false)}
@@ -1710,11 +1311,10 @@ export default function App() {
       <footer className="bg-white border-t border-stone-200 py-6 mt-12 text-center text-xs text-stone-400">
         <div className="max-w-7xl mx-auto px-4 space-y-2">
           <p className="font-semibold text-stone-600">
-            Maison & Ember • QR Ordering & Neighborhood Delivery Engine
+            {restaurant?.name ?? "Restaurant"} • QR Ordering
           </p>
           <p className="text-[11px]">
-            Designed for instant browser-based table ordering, contactless
-            menus, and local dispatching.
+            Order from the restaurant menu using an active table QR code.
           </p>
         </div>
       </footer>

@@ -20,6 +20,8 @@ export interface MenuItem {
   description?: string;
   price: number;
   imageUrl?: string;
+  dietaryType?: 'veg' | 'non-veg' | 'vegan' | null;
+  preparationTimeMinutes?: number | null;
   available: boolean;
   category?: Category;
   restaurant?: Restaurant;
@@ -55,6 +57,8 @@ export interface MenuItemRequest {
   description?: string;
   price: number;
   imageUrl?: string;
+  dietaryType?: 'veg' | 'non-veg' | 'vegan' | '';
+  preparationTimeMinutes?: number;
   categoryId: number;
   available: boolean;
 }
@@ -69,8 +73,12 @@ export interface OrderItemRequest {
 }
 
 export interface OrderRequest {
+  qrToken: string;
+  idempotencyKey: string;
   restaurantId: number;
   tableId: number;
+  customerName?: string;
+  customerPhone?: string;
   items: OrderItemRequest[];
 }
 
@@ -88,7 +96,12 @@ export interface OrderResponse {
   tableId: number;
   tableNumber: string;
   status: string;
+  paymentStatus: string;
+  customerName?: string;
+  customerPhone?: string;
   totalAmount: number;
+  createdAt: string;
+  updatedAt: string;
   items: OrderItemResponse[];
 }
 
@@ -225,6 +238,27 @@ class ApiService {
 
   async getOrderById(id: number): Promise<OrderResponse> {
     return this.request<OrderResponse>(`/api/orders/${id}`);
+  }
+
+  async getRestaurantOrders(restaurantId: number): Promise<OrderResponse[]> {
+    return this.request<OrderResponse[]>(`/api/orders/restaurant/${restaurantId}`);
+  }
+
+  async getTableOrders(tableId: number): Promise<OrderResponse[]> {
+    return this.request<OrderResponse[]>(`/api/orders/table/${tableId}`);
+  }
+
+  async updateOrderStatus(id: number, status: string): Promise<OrderResponse> {
+    return this.request<OrderResponse>(`/api/orders/${id}/status`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status }),
+    });
+  }
+
+  async cancelOrder(id: number): Promise<OrderResponse> {
+    return this.request<OrderResponse>(`/api/orders/${id}/cancel`, {
+      method: 'POST',
+    });
   }
 }
 

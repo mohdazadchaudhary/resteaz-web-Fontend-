@@ -15,22 +15,31 @@ export default function OrderPage() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    loadOrder();
+    let active = true;
+    const refreshOrder = async () => {
+      try {
+        const orderData = await apiService.getOrderById(Number(orderId));
+        if (active) {
+          setOrder(orderData);
+          setError(null);
+        }
+      } catch (err) {
+        if (active) {
+          setError(err instanceof Error ? err.message : 'Failed to load order');
+        }
+      } finally {
+        if (active) {
+          setLoading(false);
+        }
+      }
+    };
+    void refreshOrder();
+    const interval = window.setInterval(() => void refreshOrder(), 5000);
+    return () => {
+      active = false;
+      window.clearInterval(interval);
+    };
   }, [orderId]);
-
-  const loadOrder = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      const orderData = await apiService.getOrderById(Number(orderId));
-      setOrder(orderData);
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to load order';
-      setError(errorMessage);
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const getStatusIcon = (status: string) => {
     switch (status) {
@@ -73,7 +82,7 @@ export default function OrderPage() {
     { key: 'CONFIRMED', label: 'Confirmed' },
     { key: 'PREPARING', label: 'Preparing' },
     { key: 'READY', label: 'Ready' },
-    { key: 'COMPLETED', label: 'Completed' },
+    { key: 'COMPLETED', label: 'Served' },
   ];
 
   const getCurrentStepIndex = () => {
@@ -138,9 +147,10 @@ export default function OrderPage() {
             <h1 className="text-2xl font-bold text-gray-900">Order Placed Successfully</h1>
           </div>
           <div className="space-y-2 text-gray-600">
-            <p><span className="font-medium">Order #:</span> {order.id}</p>
+            <p><span className="font-medium">Order ID:</span> {order.id}</p>
             <p><span className="font-medium">Table:</span> {order.tableNumber}</p>
             <p><span className="font-medium">Total:</span> ₹{order.totalAmount.toFixed(2)}</p>
+            <p><span className="font-medium">Placed:</span> {new Date(order.createdAt).toLocaleString()}</p>
           </div>
         </div>
 
@@ -162,7 +172,9 @@ export default function OrderPage() {
                 {getStatusIcon(order.status)}
                 <div>
                   <p className="font-semibold text-gray-900">{order.status}</p>
-                  <p className="text-sm text-gray-600">Current order status</p>
+                  <p className="text-sm text-gray-600">
+                    Updated {new Date(order.updatedAt).toLocaleString()}
+                  </p>
                 </div>
               </div>
 
@@ -229,12 +241,7 @@ export default function OrderPage() {
 
         {/* Refresh Button */}
         <div className="mt-6 text-center">
-          <button
-            onClick={loadOrder}
-            className="bg-gray-100 text-gray-700 px-6 py-2 rounded-lg hover:bg-gray-200 transition-colors"
-          >
-            Refresh Status
-          </button>
+          <p className="text-sm text-gray-500">Order status updates automatically.</p>
         </div>
       </div>
     </div>
