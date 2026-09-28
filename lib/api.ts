@@ -11,6 +11,7 @@ export interface Restaurant {
 export interface Category {
   id: number;
   name: string;
+  active?: boolean;
 }
 
 export interface MenuItem {
@@ -18,9 +19,10 @@ export interface MenuItem {
   name: string;
   description?: string;
   price: number;
+  imageUrl?: string;
+  available: boolean;
   category?: Category;
   restaurant?: Restaurant;
-  active?: boolean;
 }
 
 export interface Table {
@@ -38,6 +40,56 @@ export interface TableRequest {
 
 export interface TableStatusRequest {
   active: boolean;
+}
+
+export interface CategoryRequest {
+  name: string;
+}
+
+export interface CategoryStatusRequest {
+  active: boolean;
+}
+
+export interface MenuItemRequest {
+  name: string;
+  description?: string;
+  price: number;
+  imageUrl?: string;
+  categoryId: number;
+  available: boolean;
+}
+
+export interface MenuItemAvailabilityRequest {
+  available: boolean;
+}
+
+export interface OrderItemRequest {
+  menuItemId: number;
+  quantity: number;
+}
+
+export interface OrderRequest {
+  restaurantId: number;
+  tableId: number;
+  items: OrderItemRequest[];
+}
+
+export interface OrderItemResponse {
+  menuItemId: number;
+  name: string;
+  quantity: number;
+  unitPrice: number;
+  subtotal: number;
+}
+
+export interface OrderResponse {
+  id: number;
+  restaurantId: number;
+  tableId: number;
+  tableNumber: string;
+  status: string;
+  totalAmount: number;
+  items: OrderItemResponse[];
 }
 
 class ApiService {
@@ -102,6 +154,77 @@ class ApiService {
   // Category APIs
   async getCategories(): Promise<Category[]> {
     return this.request<Category[]>('/api/categories');
+  }
+
+  async createCategory(request: CategoryRequest): Promise<Category> {
+    return this.request<Category>('/api/categories', {
+      method: 'POST',
+      body: JSON.stringify(request),
+    });
+  }
+
+  async updateCategory(id: number, request: CategoryRequest): Promise<Category> {
+    return this.request<Category>(`/api/categories/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(request),
+    });
+  }
+
+  async updateCategoryStatus(id: number, request: CategoryStatusRequest): Promise<Category> {
+    return this.request<Category>(`/api/categories/${id}/status`, {
+      method: 'PATCH',
+      body: JSON.stringify(request),
+    });
+  }
+
+  async deleteCategory(id: number): Promise<void> {
+    return this.request<void>(`/api/categories/${id}`, {
+      method: 'DELETE',
+    });
+  }
+
+  // Menu Item APIs
+  async getMenuItemById(id: number): Promise<MenuItem> {
+    return this.request<MenuItem>(`/api/menu/${id}`);
+  }
+
+  async createMenuItem(request: MenuItemRequest): Promise<MenuItem> {
+    return this.request<MenuItem>('/api/menu', {
+      method: 'POST',
+      body: JSON.stringify(request),
+    });
+  }
+
+  async updateMenuItem(id: number, request: MenuItemRequest): Promise<MenuItem> {
+    return this.request<MenuItem>(`/api/menu/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(request),
+    });
+  }
+
+  async deleteMenuItem(id: number): Promise<void> {
+    return this.request<void>(`/api/menu/${id}`, {
+      method: 'DELETE',
+    });
+  }
+
+  async updateMenuItemAvailability(id: number, request: MenuItemAvailabilityRequest): Promise<MenuItem> {
+    return this.request<MenuItem>(`/api/menu/${id}/availability`, {
+      method: 'PATCH',
+      body: JSON.stringify(request),
+    });
+  }
+
+  // Order APIs
+  async createOrder(request: OrderRequest): Promise<OrderResponse> {
+    return this.request<OrderResponse>('/api/orders', {
+      method: 'POST',
+      body: JSON.stringify(request),
+    });
+  }
+
+  async getOrderById(id: number): Promise<OrderResponse> {
+    return this.request<OrderResponse>(`/api/orders/${id}`);
   }
 }
 
