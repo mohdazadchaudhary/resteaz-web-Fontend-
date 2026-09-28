@@ -222,6 +222,11 @@ export default function OrderPage() {
                 <div>
                   <p className="font-medium">{item.name}</p>
                   <p className="text-sm text-gray-600">Quantity: {item.quantity}</p>
+                  {item.addOns?.map((addOn) => (
+                    <p key={`${item.menuItemId}-${addOn.addOnId}`} className="pl-3 text-sm text-gray-600">
+                      + {addOn.name} × {addOn.quantity} — ₹{addOn.subtotal.toFixed(2)}
+                    </p>
+                  ))}
                 </div>
                 <div className="text-right">
                   <p className="font-semibold">₹{item.unitPrice.toFixed(2)} × {item.quantity}</p>

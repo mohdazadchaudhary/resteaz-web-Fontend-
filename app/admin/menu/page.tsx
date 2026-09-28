@@ -2,14 +2,14 @@
 
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { Plus, Edit, X, CheckCircle2, AlertCircle, Trash2, Utensils, Upload } from "lucide-react";
-import { apiService, AddOn, Category, MenuItem, CategoryRequest, MenuItemRequest, resolveImageUrl } from "@/lib/api";
+import { apiService, AddOn, AddOnRequest, Category, MenuItem, CategoryRequest, MenuItemRequest, resolveImageUrl } from "@/lib/api";
 
 type MenuItemAddOn = {
   id?: number;
   name: string;
   description?: string;
   price: number;
-  dietaryType?: "veg" | "non-veg" | "";
+  dietaryType?: "veg" | "non-veg" | "" | null;
   available: boolean;
 };
 
@@ -53,6 +53,9 @@ export default function AdminMenuPage() {
   // Menu item modal state
   const [showMenuItemModal, setShowMenuItemModal] = useState(false);
   const [editingMenuItem, setEditingMenuItem] = useState<MenuItem | null>(null);
+  const [menuItemSubmitting, setMenuItemSubmitting] = useState(false);
+  const [menuItemError, setMenuItemError] = useState<string | null>(null);
+  const menuItemSubmitInProgress = useRef(false);
   const [uploadingImage, setUploadingImage] = useState(false);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const [menuItemForm, setMenuItemForm] = useState<MenuItemForm>({
@@ -191,18 +194,44 @@ export default function AdminMenuPage() {
 
   const handleSaveMenuItem = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (menuItemSubmitInProgress.current) return;
+    setMenuItemError(null);
+    const price = Number(menuItemForm.price);
+    const preparationTime = menuItemForm.preparationTimeMinutes
+      ? Number(menuItemForm.preparationTimeMinutes)
+      : undefined;
+    const categoryExists = categories.some(
+      (category) => category.id === Number(menuItemForm.categoryId) && category.active !== false,
+    );
+
     if (!menuItemForm.name.trim() || !menuItemForm.price || !menuItemForm.categoryId) {
-      showMessage('error', 'Please fill in all required fields');
+      setMenuItemError('Enter a menu item name, price, and active category.');
+      return;
+    }
+    if (!Number.isFinite(price) || price < 0) {
+      setMenuItemError('Enter a valid price of zero or more.');
+      return;
+    }
+    if (preparationTime !== undefined && (!Number.isInteger(preparationTime) || preparationTime < 0)) {
+      setMenuItemError('Preparation time must be a whole number of zero or more minutes.');
+      return;
+    }
+    if (!categoryExists) {
+      setMenuItemError('Choose an active category before saving.');
       return;
     }
 
+    menuItemSubmitInProgress.current = true;
+    setMenuItemSubmitting(true);
     try {
       const savedAddOns = await Promise.all(menuItemForm.addOns.map(async (addOn) => {
-        const payload = {
+        const payload: AddOnRequest = {
           name: addOn.name.trim(),
           description: addOn.description,
           price: addOn.price,
-          dietaryType: addOn.dietaryType || "",
+          dietaryType: addOn.dietaryType === "veg" || addOn.dietaryType === "non-veg"
+            ? addOn.dietaryType
+            : "",
           available: addOn.available,
         };
         return addOn.id
@@ -212,11 +241,16 @@ export default function AdminMenuPage() {
       const request = createMenuItemRequest(menuItemForm, savedAddOns);
 
       if (editingMenuItem) {
-        await apiService.updateMenuItem(editingMenuItem.id, request);
+        const updated = await apiService.updateMenuItem(editingMenuItem.id, request);
+        setMenuItems((items) => items.map((item) => item.id === updated.id ? updated : item));
         showMessage('success', 'Menu item updated successfully');
       } else {
-        await apiService.createMenuItem(request);
-        showMessage('success', 'Menu item created successfully');
+        const created = await apiService.createMenuItem(request);
+        if (!created?.id) {
+          throw new Error('The server did not confirm that the menu item was saved.');
+        }
+        setMenuItems((items) => [created, ...items]);
+        showMessage('success', 'Menu item added successfully.');
       }
       setShowMenuItemModal(false);
       setMenuItemForm({
@@ -232,13 +266,21 @@ export default function AdminMenuPage() {
       });
       setEditingMenuItem(null);
       setAddOnMessage(null);
-      loadData();
+      setAvailableAddOns((current) => {
+        const updatedAddOns = new Map(current.map((addOn) => [addOn.id, addOn]));
+        savedAddOns.forEach((addOn) => updatedAddOns.set(addOn.id, addOn));
+        return Array.from(updatedAddOns.values());
+      });
     } catch (error) {
-      showMessage('error', error instanceof Error ? error.message : 'Failed to save menu item');
+      setMenuItemError(error instanceof Error ? error.message : 'Could not save the menu item.');
+    } finally {
+      menuItemSubmitInProgress.current = false;
+      setMenuItemSubmitting(false);
     }
   };
 
   const handleEditMenuItem = (menuItem: MenuItem) => {
+    setMenuItemError(null);
     setEditingMenuItem(menuItem);
     setMenuItemForm({
       name: menuItem.name,
@@ -398,10 +440,13 @@ export default function AdminMenuPage() {
 
     try {
       await apiService.deleteMenuItem(menuItem.id);
+      setMenuItems((items) => items.filter((item) => item.id !== menuItem.id));
       showMessage('success', 'Menu item deleted successfully');
-      loadData();
     } catch (error) {
-      showMessage('error', 'Failed to delete menu item');
+      showMessage(
+        'error',
+        error instanceof Error ? error.message : 'Failed to delete menu item.',
+      );
     }
   };
 
@@ -457,6 +502,7 @@ export default function AdminMenuPage() {
         <button
           onClick={() => {
             setEditingMenuItem(null);
+            setMenuItemError(null);
             setMenuItemForm({
               name: "",
               description: "",
@@ -471,6 +517,7 @@ export default function AdminMenuPage() {
             setSelectedAddOnId("");
             setNewAddOnName("");
             setNewAddOnPrice("");
+            setNewAddOnDietaryType("");
             setAddOnMessage(null);
             setShowMenuItemModal(true);
           }}
@@ -647,14 +694,25 @@ export default function AdminMenuPage() {
 
       {/* Menu Item Modal */}
       {showMenuItemModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-md mx-4 max-h-[90vh] flex flex-col overflow-hidden">
-            <div className="flex items-center justify-between mb-4 flex-shrink-0">
-              <h2 className="text-xl font-semibold">
-                {editingMenuItem ? 'Edit Menu Item' : 'Add Menu Item'}
-              </h2>
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-stone-950/60 p-4 backdrop-blur-sm">
+          <div className="mx-auto my-4 flex max-h-[calc(100vh-2rem)] w-full max-w-4xl flex-col overflow-hidden rounded-2xl border border-stone-200 bg-white shadow-2xl">
+            <div className="flex flex-shrink-0 items-start justify-between border-b border-stone-200 bg-stone-50 px-6 py-5">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-[0.18em] text-emerald-700">
+                  Menu management
+                </p>
+                <h2 className="mt-1 text-2xl font-bold text-stone-900">
+                  {editingMenuItem ? 'Edit Menu Item' : 'Add Menu Item'}
+                </h2>
+                <p className="mt-1 text-sm text-stone-500">
+                  Add the details guests need to choose this dish.
+                </p>
+              </div>
               <button
+                type="button"
+                disabled={menuItemSubmitting}
                 onClick={() => {
+                  if (menuItemSubmitting) return;
                   setShowMenuItemModal(false);
                   setMenuItemForm({
                     name: "",
@@ -669,88 +727,106 @@ export default function AdminMenuPage() {
                   });
                   setEditingMenuItem(null);
                 }}
-                className="text-gray-500 hover:text-gray-700"
+                aria-label="Close menu item form"
+                className="rounded-full p-2 text-stone-500 transition hover:bg-stone-200 hover:text-stone-900 disabled:opacity-50"
               >
                 <X className="w-6 h-6" />
               </button>
             </div>
 
             <form onSubmit={handleSaveMenuItem} className="flex min-h-0 flex-1 flex-col">
-              <div className="min-h-0 flex-1 overflow-y-auto space-y-4 mb-6">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Name *
-                  </label>
-                  <input
-                    type="text"
-                    value={menuItemForm.name}
-                    onChange={(e) => setMenuItemForm({ ...menuItemForm, name: e.target.value })}
-                    placeholder="e.g., Chicken Burger"
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-black focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    required
-                  />
+              {menuItemError && (
+                <div className="mx-6 mt-5 flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800" role="alert">
+                  <AlertCircle className="mt-0.5 h-5 w-5 flex-shrink-0" />
+                  <span>{menuItemError}</span>
+                </div>
+              )}
+              <div className="grid min-h-0 flex-1 grid-cols-1 gap-5 overflow-y-auto px-6 py-5 md:grid-cols-2">
+                <div className="space-y-4 rounded-xl border border-stone-200 bg-white p-4">
+                  <div>
+                    <h3 className="text-sm font-bold text-stone-900">Dish details</h3>
+                    <p className="mt-1 text-xs text-stone-500">Name, description, price and category.</p>
+                  </div>
+                  <div>
+                    <label className="mb-2 block text-sm font-semibold text-stone-700">
+                      Name *
+                    </label>
+                    <input
+                      type="text"
+                      value={menuItemForm.name}
+                      onChange={(e) => setMenuItemForm((current) => ({ ...current, name: e.target.value }))}
+                      placeholder="e.g., Chicken Burger"
+                      maxLength={120}
+                      className="w-full rounded-lg border border-stone-300 px-3 py-2.5 text-stone-900 placeholder:text-stone-400 focus:border-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-100"
+                      required
+                    />
+                  </div>
+
+                  <div>
+                    <label className="mb-2 block text-sm font-semibold text-stone-700">
+                      Description
+                    </label>
+                    <textarea
+                      value={menuItemForm.description}
+                      onChange={(e) => setMenuItemForm((current) => ({ ...current, description: e.target.value }))}
+                      placeholder="e.g., Grilled chicken burger with fresh vegetables"
+                      rows={4}
+                      maxLength={500}
+                      className="w-full resize-y rounded-lg border border-stone-300 px-3 py-2.5 text-stone-900 placeholder:text-stone-400 focus:border-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-100"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                    <div>
+                      <label className="mb-2 block text-sm font-semibold text-stone-700">
+                        Price (₹) *
+                      </label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        value={menuItemForm.price}
+                        onChange={(e) => setMenuItemForm((current) => ({ ...current, price: e.target.value }))}
+                        placeholder="149.00"
+                        className="w-full rounded-lg border border-stone-300 px-3 py-2.5 text-stone-900 placeholder:text-stone-400 focus:border-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-100"
+                        required
+                      />
+                    </div>
+
+                    <div>
+                      <label className="mb-2 block text-sm font-semibold text-stone-700">
+                        Category *
+                      </label>
+                      <select
+                        value={menuItemForm.categoryId}
+                        onChange={(e) => setMenuItemForm((current) => ({ ...current, categoryId: e.target.value }))}
+                        className="w-full rounded-lg border border-stone-300 bg-white px-3 py-2.5 text-stone-900 focus:border-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-100"
+                        required
+                      >
+                        <option value="">Select a category</option>
+                        {categories
+                          .filter((cat) => cat.active !== false)
+                          .map((category) => (
+                            <option key={category.id} value={category.id}>
+                              {category.name}
+                            </option>
+                          ))}
+                      </select>
+                    </div>
+                  </div>
                 </div>
 
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Description
-                  </label>
-                  <textarea
-                    value={menuItemForm.description}
-                    onChange={(e) => setMenuItemForm({ ...menuItemForm, description: e.target.value })}
-                    placeholder="e.g., Grilled chicken burger with fresh vegetables"
-                    rows={3}
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-black focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Price (₹) *
-                  </label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    value={menuItemForm.price}
-                    onChange={(e) => setMenuItemForm({ ...menuItemForm, price: e.target.value })}
-                    placeholder="e.g., 149"
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-black focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    required
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Category *
-                  </label>
-                  <select
-                    value={menuItemForm.categoryId}
-                    onChange={(e) => setMenuItemForm({ ...menuItemForm, categoryId: e.target.value })}
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-black focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    required
-                  >
-                    <option value="">Select a category</option>
-                    {categories
-                      .filter((cat) => cat.active !== false)
-                      .map((category) => (
-                        <option key={category.id} value={category.id}>
-                          {category.name}
-                        </option>
-                      ))}
-                  </select>
-                </div>
-
-                <div className="space-y-3 rounded-lg border border-gray-200 p-3">
-                  <label className="block text-sm font-medium text-gray-700">
-                    Add-ons / Extras
-                  </label>
-                  <div className="flex gap-2">
+                <div className="space-y-4 rounded-xl border border-stone-200 bg-stone-50 p-4 md:col-span-2">
+                  <div>
+                    <h3 className="text-sm font-bold text-stone-900">Add-ons and extras</h3>
+                    <p className="mt-1 text-xs text-stone-500">Offer optional additions for this dish.</p>
+                  </div>
+                  <div className="flex flex-col gap-2 sm:flex-row">
                     <select
                       value={selectedAddOnId}
                       onChange={(event) => setSelectedAddOnId(event.target.value)}
                       disabled={addOnAction !== null || removingAddOnId !== null}
-                      className="min-w-0 flex-1 rounded-lg border border-gray-300 px-3 py-2 text-black"
+                      className="min-w-0 flex-1 rounded-lg border border-stone-300 bg-white px-3 py-2.5 text-stone-900"
                     >
                       <option value="">Select an existing add-on</option>
                       {availableAddOns
@@ -767,12 +843,12 @@ export default function AdminMenuPage() {
                       type="button"
                       onClick={handleAddExistingAddOn}
                       disabled={addOnAction !== null || removingAddOnId !== null}
-                      className="rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-700 disabled:opacity-50"
+                      className="rounded-lg bg-emerald-700 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-800 disabled:opacity-50"
                     >
                       {addOnAction === "attach" ? "Adding..." : "Add Existing"}
                     </button>
                   </div>
-                  <div className="flex gap-2">
+                  <div className="flex flex-col gap-2 sm:flex-row">
                     <input
                       type="text"
                       value={newAddOnName}
@@ -780,7 +856,7 @@ export default function AdminMenuPage() {
                       placeholder="New add-on name"
                       maxLength={120}
                       disabled={addOnAction !== null || removingAddOnId !== null}
-                      className="min-w-0 flex-1 rounded-lg border border-gray-300 px-3 py-2 text-black"
+                      className="min-w-0 flex-1 rounded-lg border border-stone-300 px-3 py-2.5 text-stone-900 placeholder:text-stone-400"
                     />
                     <input
                       type="number"
@@ -791,7 +867,7 @@ export default function AdminMenuPage() {
                       placeholder="Price"
                       aria-label="New add-on price"
                       disabled={addOnAction !== null || removingAddOnId !== null}
-                      className="w-24 rounded-lg border border-gray-300 px-3 py-2 text-black"
+                      className="w-28 rounded-lg border border-stone-300 px-3 py-2.5 text-stone-900 placeholder:text-stone-400"
                     />
                     <select
                       value={newAddOnDietaryType}
@@ -800,7 +876,7 @@ export default function AdminMenuPage() {
                       )}
                       aria-label="New add-on dietary type"
                       disabled={addOnAction !== null || removingAddOnId !== null}
-                      className="w-28 rounded-lg border border-gray-300 px-2 py-2 text-sm text-blue-700 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      className="w-32 rounded-lg border border-stone-300 bg-white px-2 py-2.5 text-sm text-stone-700 focus:border-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-100"
                     >
                       <option value="">Veg/Non-Veg</option>
                       <option value="veg">Veg</option>
@@ -810,7 +886,7 @@ export default function AdminMenuPage() {
                       type="button"
                       onClick={handleAddNewAddOn}
                       disabled={addOnAction !== null || removingAddOnId !== null}
-                      className="inline-flex items-center gap-1 rounded-lg bg-blue-600 px-3 py-2 text-sm text-white hover:bg-blue-700 disabled:opacity-50"
+                      className="inline-flex items-center gap-1 rounded-lg bg-emerald-700 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-800 disabled:opacity-50"
                     >
                       <Plus className="h-4 w-4" />
                       {addOnAction === "create" ? "Creating..." : "Create"}
@@ -906,12 +982,13 @@ export default function AdminMenuPage() {
                   )}
                 </div>
 
-                <div className="space-y-3">
-                  <label className="block text-sm font-medium text-gray-700">
-                    Food Image
-                  </label>
+                <div className="space-y-3 rounded-xl border border-stone-200 bg-white p-4">
+                  <div>
+                    <h3 className="text-sm font-bold text-stone-900">Food image</h3>
+                    <p className="mt-1 text-xs text-stone-500">Upload an image or use a public image URL.</p>
+                  </div>
                   <MenuImagePreview imageUrl={menuItemForm.imageUrl} />
-                  <div className="flex items-center gap-3">
+                  <div className="flex flex-wrap items-center gap-3">
                     <input
                       ref={imageInputRef}
                       type="file"
@@ -924,7 +1001,7 @@ export default function AdminMenuPage() {
                       type="button"
                       onClick={() => imageInputRef.current?.click()}
                       disabled={uploadingImage}
-                      className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+                      className="inline-flex items-center gap-2 rounded-lg bg-emerald-700 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       <Upload className="h-4 w-4" />
                       {menuItemForm.imageUrl ? "Replace Image" : "Upload Image"}
@@ -932,6 +1009,7 @@ export default function AdminMenuPage() {
                     {menuItemForm.imageUrl && (
                       <button
                         type="button"
+                        disabled={menuItemSubmitting}
                         onClick={() => {
                           setMenuItemForm((current) => ({ ...current, imageUrl: "" }));
                           if (imageInputRef.current) imageInputRef.current.value = "";
@@ -952,12 +1030,13 @@ export default function AdminMenuPage() {
                     onChange={(e) => setMenuItemForm({ ...menuItemForm, imageUrl: e.target.value })}
                     placeholder="https://example.com/image.jpg"
                     disabled={uploadingImage}
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-black focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    maxLength={2048}
+                    className="w-full rounded-lg border border-stone-300 px-3 py-2.5 text-stone-900 focus:border-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-100"
                   />
                 </div>
 
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                <div className="space-y-3 rounded-xl border border-stone-200 bg-white p-4">
+                  <label className="block text-sm font-semibold text-stone-700">
                     Dietary Type
                   </label>
                   <select
@@ -968,7 +1047,7 @@ export default function AdminMenuPage() {
                         ? e.target.value
                         : "",
                     })}
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-black focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full rounded-lg border border-stone-300 bg-white px-3 py-2.5 text-stone-900 focus:border-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-100"
                   >
                     <option value="">Not specified</option>
                     <option value="veg">Vegetarian</option>
@@ -977,37 +1056,41 @@ export default function AdminMenuPage() {
                   </select>
                 </div>
 
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                <div className="space-y-3 rounded-xl border border-stone-200 bg-white p-4">
+                  <label className="block text-sm font-semibold text-stone-700">
                     Preparation Time (minutes)
                   </label>
                   <input
                     type="number"
                     min="0"
                     value={menuItemForm.preparationTimeMinutes}
-                    onChange={(e) => setMenuItemForm({ ...menuItemForm, preparationTimeMinutes: e.target.value })}
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-black focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    onChange={(e) => setMenuItemForm((current) => ({ ...current, preparationTimeMinutes: e.target.value }))}
+                    className="w-full rounded-lg border border-stone-300 px-3 py-2.5 text-stone-900 focus:border-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-100"
                   />
                 </div>
 
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-3 rounded-xl border border-stone-200 bg-white p-4">
                   <input
                     type="checkbox"
                     id="available"
                     checked={menuItemForm.available}
-                    onChange={(e) => setMenuItemForm({ ...menuItemForm, available: e.target.checked })}
-                    className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
+                    onChange={(e) => setMenuItemForm((current) => ({ ...current, available: e.target.checked }))}
+                    className="h-4 w-4 rounded border-stone-300 text-emerald-700 focus:ring-emerald-600"
                   />
-                  <label htmlFor="available" className="text-sm font-medium text-gray-700">
-                    Available for ordering
-                  </label>
+                  <div>
+                    <label htmlFor="available" className="text-sm font-semibold text-stone-800">
+                      Available for ordering
+                    </label>
+                    <p className="text-xs text-stone-500">Guests can order this item while enabled.</p>
+                  </div>
                 </div>
               </div>
 
-              <div className="flex flex-shrink-0 gap-3 border-t border-gray-100 pt-4">
+              <div className="flex flex-shrink-0 justify-end gap-3 border-t border-stone-200 bg-stone-50 px-6 py-4">
                 <button
                   type="button"
                   onClick={() => {
+                    if (menuItemSubmitting) return;
                     setShowMenuItemModal(false);
                     setMenuItemForm({
                       name: "",
@@ -1022,16 +1105,17 @@ export default function AdminMenuPage() {
                     });
                     setEditingMenuItem(null);
                   }}
-                  className="flex-1 bg-gray-100 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-200 transition-colors"
+                  disabled={menuItemSubmitting}
+                  className="rounded-lg border border-stone-300 bg-white px-5 py-2.5 font-semibold text-stone-700 transition hover:bg-stone-100 disabled:opacity-50"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  disabled={uploadingImage || addOnAction !== null || removingAddOnId !== null}
-                  className="flex-1 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
+                  disabled={menuItemSubmitting || uploadingImage || addOnAction !== null || removingAddOnId !== null}
+                  className="min-w-36 rounded-lg bg-emerald-700 px-5 py-2.5 font-semibold text-white transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  Save
+                  {menuItemSubmitting ? "Saving..." : "Save"}
                 </button>
               </div>
             </form>

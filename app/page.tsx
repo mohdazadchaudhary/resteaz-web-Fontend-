@@ -112,7 +112,7 @@ export default function App() {
   };
 
   const selectTable = (table: Table) => {
-    selectTable(table);
+    setSelectedTable(table);
     const query = new URLSearchParams(window.location.search);
     query.set("qrToken", table.qrToken);
     window.history.replaceState(null, "", `${window.location.pathname}?${query.toString()}${window.location.hash}`);
