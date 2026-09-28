@@ -511,7 +511,7 @@ export default function App() {
                   key={table.id}
                   onClick={() => {
                     setOrderMode("dine_in");
-                    setSelectedTable(table);
+                    selectTable(table);
                     setKdsRestaurantId(table.restaurant.id);
                     showNotification(`Selected table ${table.tableNumber}`, "success");
                   }}
